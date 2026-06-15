@@ -1,0 +1,70 @@
+"use client";
+
+import { createGame } from "@/app/actions/games";
+import { Button } from "@/components/ui/button";
+import { useTransition } from "react";
+import Link from "next/link";
+
+export default function NewGamePage() {
+  const [isPending, startTransition] = useTransition();
+  const today = new Date().toISOString().split("T")[0];
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    startTransition(() => createGame(formData));
+  }
+
+  return (
+    <main className="min-h-screen p-6 max-w-lg mx-auto">
+      <Link href="/" className="text-sm text-muted-foreground mb-6 block">← Back</Link>
+      <h1 className="text-2xl font-bold mb-6">New Game</h1>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Opponent (optional)</label>
+          <input
+            name="opponent"
+            type="text"
+            placeholder="Team name"
+            className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Date</label>
+          <input
+            name="played_at"
+            type="date"
+            defaultValue={today}
+            className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Lineup Mode</label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="relative">
+              <input type="radio" name="lineup_mode" value="continuous" defaultChecked className="sr-only peer" />
+              <div className="p-4 rounded-lg border border-border peer-checked:border-zinc-400 peer-checked:bg-zinc-800 cursor-pointer text-center transition-colors">
+                <p className="font-medium">Continuous</p>
+                <p className="text-xs text-muted-foreground mt-1">Batting order cycles through the game</p>
+              </div>
+            </label>
+            <label className="relative">
+              <input type="radio" name="lineup_mode" value="fixed" className="sr-only peer" />
+              <div className="p-4 rounded-lg border border-border peer-checked:border-zinc-400 peer-checked:bg-zinc-800 cursor-pointer text-center transition-colors">
+                <p className="font-medium">Fixed</p>
+                <p className="text-xs text-muted-foreground mt-1">Set batting order per inning</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <Button type="submit" size="lg" className="w-full font-bold mt-4" disabled={isPending}>
+          {isPending ? "Creating..." : "Set Lineup →"}
+        </Button>
+      </form>
+    </main>
+  );
+}
