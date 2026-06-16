@@ -31,6 +31,39 @@ export async function getActivePlayers(): Promise<Player[]> {
   return data as Player[];
 }
 
+// Regular roster only (active, non-guest) — the default list for a new lineup,
+// so one-off guests don't pile up in every future game.
+export async function getRosterPlayers(): Promise<Player[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("players")
+    .select("*")
+    .eq("team_id", TEAM_ID)
+    .eq("is_active", true)
+    .eq("is_guest", false)
+    .order("name");
+
+  if (error) throw new Error(error.message);
+  return data as Player[];
+}
+
+// Persist a one-off guest immediately so the lineup/at-bat rows that reference it
+// satisfy the players FK. Returns the real row (with its DB id).
+export async function addGuestPlayer(name: string): Promise<Player> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name is required");
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("players")
+    .insert({ team_id: TEAM_ID, name: trimmed, is_active: true, is_guest: true })
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as Player;
+}
+
 export async function addPlayer(formData: FormData) {
   const supabase = await createClient();
   const name = (formData.get("name") as string)?.trim();

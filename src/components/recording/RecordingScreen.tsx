@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { posthog } from "@/lib/posthog/client";
-import { recordAtBat, deleteAtBat, updateAtBat } from "@/app/actions/atBats";
+import {
+  queueRecordAtBat,
+  queueUpdateAtBat,
+  queueDeleteAtBat,
+  useSyncStatus,
+} from "@/lib/offline/queue";
 import type { AtBat, AtBatOutcome, Game, OutcomeCategory } from "@/types/database";
 import {
   OUTCOMES_BY_CATEGORY,
@@ -12,7 +17,12 @@ import {
   OUTCOME_CATEGORIES,
 } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
+import { useGameStore, type SelfAbMode } from "@/stores/gameStore";
 import EditLogDrawer from "./EditLogDrawer";
+
+// Placeholder outcome stored on a "fill in after" pending at-bat. While pending
+// it's excluded from every stat view, so the value is irrelevant until resolved.
+const PENDING_PLACEHOLDER: AtBatOutcome = "groundout";
 
 // Outcomes that can drive in a run — only these surface the live RBI stepper.
 const RBI_ELIGIBLE: AtBatOutcome[] = ["1B", "2B", "3B", "HR", "FC", "ROE", "SAC", "BB"];
@@ -72,13 +82,23 @@ export default function RecordingScreen({
   // the next at-bat is recorded. Keyed by sequence (stable across optimistic→saved).
   const [rbiBar, setRbiBar] = useState<{ seq: number; playerName: string; outcome: AtBatOutcome } | null>(null);
   const [showEditLog, setShowEditLog] = useState(false);
-  const [pendingCount] = useState(initialAtBats.filter((ab) => ab.is_pending).length);
+  // Live so the resolver badge updates as pending at-bats are created/resolved.
+  const pendingCount = atBats.filter((ab) => ab.is_pending).length;
+  const unsynced = useSyncStatus();
+  // self-AB flow state: null = normal; "choosing" = the recorder is up and
+  // picking how to handle it; "recording" = they chose to record it now.
+  const [selfFlow, setSelfFlow] = useState<null | "choosing" | "recording">(null);
   const lastAbTimeRef = useRef<number | null>(null);
   const step1TimeRef = useRef<number>(0);
   const router = useRouter();
 
+  const selfPlayerId = useGameStore((s) => s.selfPlayerId);
+  const preferredSelfAbMode = useGameStore((s) => s.preferredSelfAbMode);
+  const setSelfAbMode = useGameStore((s) => s.setSelfAbMode);
+
   const currentBatter = lineup[currentIndex];
   const onDeckBatter = lineup[(currentIndex + 1) % lineup.length];
+  const isSelfAtBat = !!selfPlayerId && currentBatter?.player_id === selfPlayerId;
 
   // Track today stats (current game)
   const currentTodayStats = currentBatter ? computeTodayStats(atBats, currentBatter.player_id) : null;
@@ -90,13 +110,60 @@ export default function RecordingScreen({
     return () => clearTimeout(timer);
   }, [undoAb]);
 
+  // When the recorder's own spot comes up, surface the self-AB chooser; reset
+  // once the lineup has moved on.
+  useEffect(() => {
+    if (isSelfAtBat) {
+      setSelfFlow((f) => (f === null ? "choosing" : f));
+    } else {
+      setSelfFlow((f) => (f === null ? f : null));
+    }
+  }, [isSelfAtBat]);
+
+  // "Fill in after": log a pending placeholder for the recorder's at-bat and
+  // advance. Resolved later from the Edit Log (which clears is_pending).
+  const recordSelfPending = useCallback(() => {
+    if (!currentBatter) return;
+    haptic([30, 50, 30]);
+    const sequenceInGame = atBats.length + 1;
+    const ab: AtBat = {
+      id: crypto.randomUUID(),
+      game_id: game.id,
+      player_id: currentBatter.player_id,
+      sequence_in_game: sequenceInGame,
+      outcome: PENDING_PLACEHOLDER,
+      rbis: 0,
+      runs_scored: 0,
+      recorded_by_user_id: userId,
+      recorded_at: new Date().toISOString(),
+      is_pending: true,
+      was_self_ab: true,
+    };
+    setAtBats((prev) => [...prev, ab]);
+    setRbiBar(null);
+    setCurrentIndex((i) => (i + 1) % lineup.length);
+    setStep({ type: "category" });
+    setSelfAbMode("pending");
+    posthog.capture("self_ab_mode_chosen", { mode: "pending" });
+    void queueRecordAtBat({
+      id: ab.id,
+      gameId: game.id,
+      playerId: currentBatter.player_id,
+      outcome: PENDING_PLACEHOLDER,
+      sequenceInGame,
+      isPending: true,
+      wasSelfAb: true,
+    });
+    toast("Marked pending — resolve it from the Edit Log");
+  }, [currentBatter, game.id, atBats.length, lineup.length, userId, setSelfAbMode]);
+
   const handleCategoryTap = useCallback((category: OutcomeCategory) => {
     haptic([30]);
     step1TimeRef.current = Date.now();
     setStep({ type: "outcome", category, step1Time: step1TimeRef.current });
   }, []);
 
-  const handleOutcomeTap = useCallback(async (outcome: AtBatOutcome) => {
+  const handleOutcomeTap = useCallback(async (outcome: AtBatOutcome, wasSelfAb = false) => {
     if (!currentBatter) return;
     haptic([30, 50, 30]);
 
@@ -120,7 +187,7 @@ export default function RecordingScreen({
       recorded_by_user_id: userId,
       recorded_at: new Date().toISOString(),
       is_pending: false,
-      was_self_ab: false,
+      was_self_ab: wasSelfAb,
     };
 
     setAtBats((prev) => [...prev, optimisticAb]);
@@ -146,34 +213,22 @@ export default function RecordingScreen({
       category,
       time_step1_to_step2_ms: timeStep1ToStep2,
       time_since_last_ab_ms: timeSinceLastAb,
-      was_self_ab: false,
+      was_self_ab: wasSelfAb,
     });
 
-    // Persist to Supabase (fire-and-forget, handle error gracefully)
+    // Durable write: queue to IndexedDB (survives a dead signal) keyed by the
+    // same client id the UI holds, so RBI edits / undo target a stable row.
     try {
-      const saved = await recordAtBat({
+      await queueRecordAtBat({
+        id: optimisticAb.id,
         gameId: game.id,
         playerId: currentBatter.player_id,
         outcome,
         sequenceInGame,
+        wasSelfAb,
       });
-      // Replace optimistic AB with server response, preserving any RBIs the
-      // recorder may have already tapped during the save window.
-      setAtBats((prev) =>
-        prev.map((ab) => {
-          if (ab.id !== optimisticAb.id) return ab;
-          const preservedRbis = ab.rbis ?? 0;
-          if (preservedRbis > 0) {
-            updateAtBat(saved.id, { rbis: preservedRbis }).catch(() => {});
-          }
-          return { ...saved, rbis: preservedRbis };
-        })
-      );
-      setUndoAb((prev) =>
-        prev?.ab.id === optimisticAb.id ? { ab: saved, expiresAt: prev.expiresAt } : prev
-      );
     } catch {
-      toast.error("Sync failed — will retry");
+      toast.error("Couldn't save locally — check storage");
     }
   }, [currentBatter, game.id, atBats.length, lineup.length, step, userId]);
 
@@ -183,15 +238,14 @@ export default function RecordingScreen({
       prev.map((ab) => {
         if (ab.sequence_in_game !== seq) return ab;
         const next = Math.max(0, Math.min(4, (ab.rbis ?? 0) + delta));
-        // Persist using the at-bat's current id (already saved by the time the
-        // recorder taps RBI in the common case; re-persisted on save otherwise).
-        updateAtBat(ab.id, { rbis: next }).catch(() => {});
+        // Queue the RBI edit; FIFO ordering guarantees it lands after the insert.
+        void queueUpdateAtBat(ab.id, { rbis: next });
         return { ...ab, rbis: next };
       })
     );
   }, []);
 
-  async function handleUndo() {
+  function handleUndo() {
     if (!undoAb) return;
     const { ab } = undoAb;
     const timeToUndo = Date.now() - (undoAb.expiresAt - 3000);
@@ -204,11 +258,8 @@ export default function RecordingScreen({
 
     posthog.capture("at_bat_undone", { at_bat_id: ab.id, time_to_undo_ms: timeToUndo });
 
-    try {
-      await deleteAtBat(ab.id);
-    } catch {
-      toast.error("Undo sync failed");
-    }
+    // Queue the delete; if the insert hasn't synced yet the queue cancels both.
+    void queueDeleteAtBat(ab.id);
   }
 
   function handleSkip() {
@@ -222,6 +273,11 @@ export default function RecordingScreen({
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-950 text-white select-none">
+      {game.is_exhibition && (
+        <div className="bg-amber-600 text-black text-center text-xs font-bold py-1 tracking-wide">
+          TEST GAME — not counted toward season stats
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 border-b border-zinc-800">
         <div className="flex items-center gap-2">
@@ -229,11 +285,30 @@ export default function RecordingScreen({
           <span className="text-sm text-zinc-400">
             {game.opponent ? `vs ${game.opponent}` : "Game"}
           </span>
+          {unsynced > 0 ? (
+            <span className="text-xs text-amber-400 flex items-center gap-1" title="At-bats saved locally, syncing when online">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              {unsynced} unsynced
+            </span>
+          ) : (
+            <span className="text-xs text-zinc-600 flex items-center gap-1" title="All at-bats synced">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-600" />
+              Saved
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {pendingCount > 0 && (
-            <Badge variant="destructive" className="text-xs">{pendingCount} pending</Badge>
+            <button onClick={() => setShowEditLog(true)} aria-label="Resolve pending at-bats">
+              <Badge variant="destructive" className="text-xs">{pendingCount} pending</Badge>
+            </button>
           )}
+          <button
+            onClick={() => router.push(`/games/${game.id}/lineup`)}
+            className="text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded"
+          >
+            Lineup
+          </button>
           <button
             onClick={() => setShowEditLog(true)}
             className="text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded"
@@ -319,61 +394,83 @@ export default function RecordingScreen({
           </button>
         )}
 
-        {step.type === "category" ? (
-          <>
-            {/* Step 1: Category */}
-            <CategoryButton
-              label="HIT"
-              color="green"
-              onTap={() => handleCategoryTap("hit")}
-            />
-            <CategoryButton
-              label="OUT"
-              color="red"
-              onTap={() => handleCategoryTap("out")}
-            />
-            <CategoryButton
-              label="OTHER"
-              color="zinc"
-              onTap={() => handleCategoryTap("other")}
-              sublabel="Walk · Error · SAC"
-            />
-
-            {/* Skip batter */}
-            <button
-              onClick={handleSkip}
-              className="text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors py-2"
-            >
-              Skip {currentBatter?.player.name}
-            </button>
-          </>
+        {selfFlow === "choosing" ? (
+          <SelfAbPanel
+            nextName={onDeckBatter?.player.name}
+            preferred={preferredSelfAbMode}
+            onRecordNow={() => {
+              setSelfAbMode("handoff");
+              posthog.capture("self_ab_mode_chosen", { mode: "handoff" });
+              setSelfFlow("recording");
+            }}
+            onFillInAfter={recordSelfPending}
+          />
         ) : (
           <>
-            {/* Step 2: Specific outcome */}
-            <div className="grid grid-cols-2 gap-3">
-              {OUTCOMES_BY_CATEGORY[step.category].map((outcome) => (
-                <OutcomeButton
-                  key={outcome}
-                  outcome={outcome}
-                  onTap={() => handleOutcomeTap(outcome)}
-                />
-              ))}
-            </div>
+            {selfFlow === "recording" && (
+              <div className="w-full text-center px-4 py-2 rounded-xl bg-amber-900/40 border border-amber-700 text-amber-300 text-sm">
+                Recording your at-bat — hand the phone to{" "}
+                {onDeckBatter?.player.name ?? "a teammate"}
+              </div>
+            )}
 
-            {/* Back arrow */}
-            <button
-              onClick={() => {
-                posthog.capture("at_bat_category_changed", {
-                  game_id: game.id,
-                  from_category: step.category,
-                  to_category: step.category, // will be changed on next selection
-                });
-                setStep({ type: "category" });
-              }}
-              className="text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 flex items-center justify-center gap-1"
-            >
-              ← Back
-            </button>
+            {step.type === "category" ? (
+              <>
+                {/* Step 1: Category */}
+                <CategoryButton
+                  label="HIT"
+                  color="green"
+                  onTap={() => handleCategoryTap("hit")}
+                />
+                <CategoryButton
+                  label="OUT"
+                  color="red"
+                  onTap={() => handleCategoryTap("out")}
+                />
+                <CategoryButton
+                  label="OTHER"
+                  color="zinc"
+                  onTap={() => handleCategoryTap("other")}
+                  sublabel="Walk · Error · SAC"
+                />
+
+                {/* Skip batter */}
+                <button
+                  onClick={handleSkip}
+                  className="text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors py-2"
+                >
+                  Skip {currentBatter?.player.name}
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Step 2: Specific outcome */}
+                <div className="grid grid-cols-2 gap-3">
+                  {OUTCOMES_BY_CATEGORY[step.category].map((outcome) => (
+                    <OutcomeButton
+                      key={outcome}
+                      outcome={outcome}
+                      onTap={() => handleOutcomeTap(outcome, selfFlow === "recording")}
+                    />
+                  ))}
+                </div>
+
+                {/* Back arrow */}
+                <button
+                  onClick={() => {
+                    posthog.capture("at_bat_category_changed", {
+                      game_id: game.id,
+                      from_category: step.category,
+                      to_category: step.category, // will be changed on next selection
+                    });
+                    setStep({ type: "category" });
+                  }}
+                  className="text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 flex items-center justify-center gap-1"
+                >
+                  ← Back
+                </button>
+              </>
+            )}
           </>
         )}
       </div>
@@ -388,6 +485,50 @@ export default function RecordingScreen({
           setAtBats((prev) => prev.map((ab) => (ab.id === updated.id ? updated : ab)))
         }
       />
+    </div>
+  );
+}
+
+function SelfAbPanel({
+  nextName,
+  preferred,
+  onRecordNow,
+  onFillInAfter,
+}: {
+  nextName?: string;
+  preferred: SelfAbMode;
+  onRecordNow: () => void;
+  onFillInAfter: () => void;
+}) {
+  const base =
+    "w-full py-6 rounded-2xl border font-bold text-2xl tracking-wide transition-all active:scale-98";
+  const highlight = "bg-amber-700 hover:bg-amber-600 border-amber-500";
+  const plain = "bg-zinc-800 hover:bg-zinc-700 border-zinc-700";
+
+  return (
+    <div className="space-y-3">
+      <div className="text-center mb-1">
+        <p className="text-xs uppercase tracking-widest text-amber-400 mb-1">Your at-bat</p>
+        <p className="text-sm text-zinc-400">You&apos;re up — record it now, or fill it in after.</p>
+      </div>
+      <button
+        onClick={onRecordNow}
+        className={`${base} ${preferred === "handoff" ? highlight : plain}`}
+      >
+        Record now
+        <p className="text-xs font-normal text-white/60 mt-0.5">
+          Hand to {nextName ?? "a teammate"} to tap the outcome
+        </p>
+      </button>
+      <button
+        onClick={onFillInAfter}
+        className={`${base} ${preferred === "pending" ? highlight : plain}`}
+      >
+        Fill in after
+        <p className="text-xs font-normal text-white/60 mt-0.5">
+          Mark pending · resolve from the Edit Log
+        </p>
+      </button>
     </div>
   );
 }

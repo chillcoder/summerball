@@ -3,6 +3,7 @@ import { getGame } from "@/app/actions/games";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import DeleteTestGameButton from "@/components/recording/DeleteTestGameButton";
 
 export default async function GameSummaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,6 +22,11 @@ export default async function GameSummaryPage({ params }: { params: Promise<{ id
 
   return (
     <main className="min-h-screen p-4 max-w-lg mx-auto flex flex-col">
+      {game.is_exhibition && (
+        <div className="-mx-4 -mt-4 mb-4 bg-amber-600 text-black text-center text-xs font-bold py-1.5 tracking-wide">
+          TEST GAME — not counted toward season stats
+        </div>
+      )}
       <h1 className="text-2xl font-bold mb-1">Game Summary</h1>
       <p className="text-muted-foreground text-sm mb-6">
         {game.opponent ? `vs ${game.opponent}` : "Game"} ·{" "}
@@ -59,6 +65,7 @@ export default async function GameSummaryPage({ params }: { params: Promise<{ id
         <Link href="/">
           <Button variant="ghost" className="w-full text-muted-foreground">Home</Button>
         </Link>
+        {game.is_exhibition && <DeleteTestGameButton gameId={id} />}
       </div>
     </main>
   );

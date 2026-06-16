@@ -15,7 +15,9 @@ export default async function Home() {
   } = await supabase.auth.getUser();
 
   const liveGame = games.find((g) => g.status === "live");
-  const recentGames = games.filter((g) => g.status === "final").slice(0, 3);
+  const recentGames = games
+    .filter((g) => g.status === "final" && !g.is_exhibition)
+    .slice(0, 3);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6 gap-8">
@@ -39,6 +41,14 @@ export default async function Home() {
           <Link href="/games/new">
             <Button size="lg" className="w-full font-semibold">
               New Game
+            </Button>
+          </Link>
+        )}
+
+        {user && (
+          <Link href="/games/new?test=1">
+            <Button size="lg" variant="ghost" className="w-full text-muted-foreground">
+              New Test Game
             </Button>
           </Link>
         )}

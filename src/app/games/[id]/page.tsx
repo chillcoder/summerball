@@ -25,6 +25,11 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
   return (
     <main className="min-h-screen p-4 max-w-lg mx-auto">
+      {game.is_exhibition && (
+        <div className="-mx-4 -mt-4 mb-4 bg-amber-600 text-black text-center text-xs font-bold py-1.5 tracking-wide">
+          TEST GAME — not counted toward season stats
+        </div>
+      )}
       <Link href="/" className="text-sm text-muted-foreground mb-4 block">← Home</Link>
 
       <div className="flex items-start justify-between mb-6">

@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { Game, GameLineup, LineupMode } from "@/types/database";
+import type { Game, GameLineup, LineupMode, Player, PlayerStats } from "@/types/database";
 import { loadGameReport } from "@/lib/stats/loadReport";
 import { generateRecap } from "@/lib/ai/recap";
 
@@ -38,6 +38,7 @@ export async function createGame(formData: FormData) {
   const opponent = (formData.get("opponent") as string)?.trim() || null;
   const playedAt = formData.get("played_at") as string;
   const lineupMode = (formData.get("lineup_mode") as LineupMode) ?? "continuous";
+  const isExhibition = formData.get("is_exhibition") === "true";
 
   const { data: game, error } = await supabase
     .from("games")
@@ -47,6 +48,7 @@ export async function createGame(formData: FormData) {
       played_at: playedAt || new Date().toISOString().split("T")[0],
       lineup_mode: lineupMode,
       status: "scheduled",
+      is_exhibition: isExhibition,
     })
     .select()
     .single();
@@ -186,6 +188,28 @@ export async function regenerateRecap(gameId: string): Promise<string[]> {
   return bullets;
 }
 
+// Delete a game (at-bats + lineup cascade). Guarded to exhibition games only so
+// real season data can never be wiped from the UI.
+export async function deleteGame(gameId: string) {
+  const supabase = await createClient();
+  const { data: game } = await supabase
+    .from("games")
+    .select("is_exhibition")
+    .eq("id", gameId)
+    .single();
+
+  if (!game?.is_exhibition) {
+    throw new Error("Only test games can be deleted");
+  }
+
+  const { error } = await supabase.from("games").delete().eq("id", gameId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/");
+  revalidatePath("/team");
+  redirect("/");
+}
+
 export async function getGameLineup(gameId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -195,5 +219,20 @@ export async function getGameLineup(gameId: string) {
     .order("batting_position");
 
   if (error) throw new Error(error.message);
-  return data as (GameLineup & { player: { id: string; name: string } })[];
+  return data as (GameLineup & { player: Player })[];
+}
+
+// Season stats keyed by player_id, for the rule-based lineup recommendation.
+// Tolerant: returns {} if the view is empty or unavailable (e.g. no games yet).
+export async function getSeasonStatsMap(): Promise<Record<string, PlayerStats>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("player_season_stats")
+    .select("*")
+    .eq("team_id", TEAM_ID);
+
+  if (error) return {};
+  const map: Record<string, PlayerStats> = {};
+  for (const row of (data ?? []) as PlayerStats[]) map[row.player_id] = row;
+  return map;
 }

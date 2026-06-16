@@ -2,12 +2,18 @@
 
 import { createGame } from "@/app/actions/games";
 import { Button } from "@/components/ui/button";
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 
 export default function NewGamePage() {
   const [isPending, startTransition] = useTransition();
+  const [isTest, setIsTest] = useState(false);
   const today = new Date().toISOString().split("T")[0];
+
+  // Pre-check "test game" when arriving from the home-screen shortcut.
+  useEffect(() => {
+    setIsTest(new URLSearchParams(window.location.search).get("test") === "1");
+  }, []);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -18,7 +24,7 @@ export default function NewGamePage() {
   return (
     <main className="min-h-screen p-6 max-w-lg mx-auto">
       <Link href="/" className="text-sm text-muted-foreground mb-6 block">← Back</Link>
-      <h1 className="text-2xl font-bold mb-6">New Game</h1>
+      <h1 className="text-2xl font-bold mb-6">{isTest ? "New Test Game" : "New Game"}</h1>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-2">
@@ -60,6 +66,23 @@ export default function NewGamePage() {
             </label>
           </div>
         </div>
+
+        <label className="flex items-start gap-3 p-3 rounded-lg border border-border cursor-pointer">
+          <input
+            type="checkbox"
+            name="is_exhibition"
+            value="true"
+            checked={isTest}
+            onChange={(e) => setIsTest(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-amber-500"
+          />
+          <span>
+            <span className="font-medium text-sm">Test game</span>
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              Practice the recording flow — won&apos;t count toward season stats.
+            </span>
+          </span>
+        </label>
 
         <Button type="submit" size="lg" className="w-full font-bold mt-4" disabled={isPending}>
           {isPending ? "Creating..." : "Set Lineup →"}

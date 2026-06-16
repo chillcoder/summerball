@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { updateAtBat } from "@/app/actions/atBats";
+import { queueUpdateAtBat } from "@/lib/offline/queue";
 import type { AtBat, AtBatOutcome } from "@/types/database";
 import { OUTCOME_LABELS, OUTCOMES_BY_CATEGORY } from "@/types/database";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ export default function EditLogDrawer({
 
   function handleEdit(ab: AtBat, newOutcome: AtBatOutcome) {
     const oldOutcome = ab.outcome;
+    const wasPending = ab.is_pending;
     setEditingId(null);
 
     posthog.capture("at_bat_edited", {
@@ -44,11 +45,22 @@ export default function EditLogDrawer({
       to_outcome: newOutcome,
       source: "live",
     });
+    // Picking an outcome for a pending (self-)at-bat also resolves it.
+    if (wasPending) {
+      posthog.capture("pending_at_bat_resolved", {
+        at_bat_id: ab.id,
+        resolved_via: "edit_log",
+        time_since_created_ms: Date.now() - new Date(ab.recorded_at).getTime(),
+      });
+    }
 
     startTransition(async () => {
       try {
-        await updateAtBat(ab.id, { outcome: newOutcome });
-        onAtBatUpdated({ ...ab, outcome: newOutcome });
+        const updates = wasPending
+          ? { outcome: newOutcome, is_pending: false }
+          : { outcome: newOutcome };
+        await queueUpdateAtBat(ab.id, updates);
+        onAtBatUpdated({ ...ab, outcome: newOutcome, is_pending: false });
       } catch {
         toast.error("Failed to update at-bat");
       }

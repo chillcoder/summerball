@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -19,10 +20,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { saveLineup, startGame } from "@/app/actions/games";
-import type { Game, Player } from "@/types/database";
+import { addGuestPlayer } from "@/app/actions/roster";
+import { recommendLineup } from "@/lib/stats/lineup";
+import { useGameStore } from "@/stores/gameStore";
+import type { Game, GameLineup, Player, PlayerStats } from "@/types/database";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { posthog } from "@/lib/posthog/client";
 
 interface LineupEntry {
   player: Player;
@@ -32,10 +36,12 @@ interface LineupEntry {
 function SortablePlayer({
   entry,
   position,
+  explanation,
   onToggleDnp,
 }: {
   entry: LineupEntry;
   position: number;
+  explanation?: string;
   onToggleDnp: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -80,8 +86,16 @@ function SortablePlayer({
         {entry.isDnp ? "–" : position}
       </span>
 
-      {/* Name */}
-      <span className="flex-1 font-medium">{entry.player.name}</span>
+      {/* Name + optional recommendation rationale */}
+      <div className="flex-1 min-w-0">
+        <span className="font-medium">{entry.player.name}</span>
+        {entry.player.is_guest && (
+          <span className="ml-2 text-xs text-zinc-500">guest</span>
+        )}
+        {explanation && !entry.isDnp && (
+          <p className="text-xs text-zinc-500 truncate">{explanation}</p>
+        )}
+      </div>
 
       {/* DNP toggle */}
       <button
@@ -101,13 +115,19 @@ function SortablePlayer({
 export default function LineupClient({
   game,
   players,
+  savedLineup = [],
+  statsByPlayer = {},
 }: {
   game: Game;
   players: Player[];
+  savedLineup?: (GameLineup & { player: Player })[];
+  statsByPlayer?: Record<string, PlayerStats>;
 }) {
-  const [lineup, setLineup] = useState<LineupEntry[]>(
-    players.map((p) => ({ player: p, isDnp: false }))
-  );
+  const router = useRouter();
+  const selfPlayerId = useGameStore((s) => s.selfPlayerId);
+  const setSelfPlayerId = useGameStore((s) => s.setSelfPlayerId);
+  const [lineup, setLineup] = useState<LineupEntry[]>(() => seedLineup(players, savedLineup));
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
   const [guestName, setGuestName] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -130,25 +150,55 @@ export default function LineupClient({
   function toggleDnp(playerId: string) {
     setLineup((items) =>
       items.map((item) =>
-        item.player.id === playerId
-          ? { ...item, isDnp: !item.isDnp }
-          : item
+        item.player.id === playerId ? { ...item, isDnp: !item.isDnp } : item
       )
     );
   }
 
-  function addGuest() {
-    if (!guestName.trim()) return;
-    const guest: Player = {
-      id: crypto.randomUUID(),
-      team_id: game.team_id,
-      name: guestName.trim(),
-      is_active: true,
-      is_guest: true,
-      joined_at: new Date().toISOString(),
-    };
-    setLineup((prev) => [...prev, { player: guest, isDnp: false }]);
+  async function addGuest() {
+    const name = guestName.trim();
+    if (!name) return;
     setGuestName("");
+    try {
+      // Persist immediately so the FK is satisfied when the lineup/at-bats save.
+      const guest = await addGuestPlayer(name);
+      setLineup((prev) => [...prev, { player: guest, isDnp: false }]);
+    } catch {
+      toast.error("Couldn't add guest");
+      setGuestName(name);
+    }
+  }
+
+  // Rule-based batting order from season stats (reuses src/lib/stats/lineup.ts).
+  function handleSuggest() {
+    const statsMap = new Map<string, PlayerStats>(Object.entries(statsByPlayer));
+    const rosterPlayers = lineup.filter((e) => !e.player.is_guest).map((e) => e.player);
+    const { entries, hasEnoughData } = recommendLineup(rosterPlayers, statsMap);
+
+    const byId = new Map(lineup.map((e) => [e.player.id, e]));
+    const orderedIds = entries.map((e) => e.player.id);
+    const recommended = orderedIds
+      .map((id) => byId.get(id))
+      .filter((e): e is LineupEntry => Boolean(e));
+    const recommendedIds = new Set(orderedIds);
+    const leftovers = lineup.filter((e) => !recommendedIds.has(e.player.id)); // guests, etc.
+
+    const merged = [...recommended, ...leftovers];
+    const playing = merged.filter((e) => !e.isDnp);
+    const dnp = merged.filter((e) => e.isDnp);
+    setLineup([...playing, ...dnp]);
+    setExplanations(Object.fromEntries(entries.map((e) => [e.player.id, e.explanation])));
+
+    posthog.capture("lineup_recommendation_viewed", {
+      game_id: game.id,
+      recommended_order: orderedIds,
+      accepted: true,
+    });
+    toast.success(
+      hasEnoughData
+        ? "Suggested from season OBP / SLG"
+        : "Alphabetical for now — need 3+ games for a stats-based order"
+    );
   }
 
   function handleStart() {
@@ -167,19 +217,45 @@ export default function LineupClient({
           status: entry.isDnp ? "dnp" : "played",
         }));
         await saveLineup(game.id, lineupData);
-        await startGame(game.id);
-      } catch (err) {
-        toast.error("Failed to start game");
+        if (game.status === "live") {
+          // Mid-game edit: lineup already saved, just go back to recording.
+          router.push(`/record/${game.id}`);
+        } else {
+          await startGame(game.id); // sets status=live + redirects to /record
+        }
+      } catch {
+        toast.error("Failed to save lineup");
       }
     });
   }
 
-  // Only show non-DNP for sortable context
-  const playingIds = lineup.filter((e) => !e.isDnp).map((e) => e.player.id);
+  // Number only the playing slots; DNP rows show "–".
   let playingPosition = 0;
+  const startLabel = game.status === "live" ? "Save & Resume" : "Start Game";
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <span className="shrink-0">You bat as</span>
+          <select
+            value={selfPlayerId ?? ""}
+            onChange={(e) => setSelfPlayerId(e.target.value || null)}
+            className="bg-zinc-900 border border-border rounded px-2 py-1 text-foreground text-xs max-w-[9rem] truncate"
+          >
+            <option value="">— not playing —</option>
+            {players.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button variant="outline" size="sm" onClick={handleSuggest}>
+          ✨ Suggest order
+        </Button>
+      </div>
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -197,6 +273,7 @@ export default function LineupClient({
                   key={entry.player.id}
                   entry={entry}
                   position={entry.isDnp ? 0 : playingPosition}
+                  explanation={explanations[entry.player.id]}
                   onToggleDnp={toggleDnp}
                 />
               );
@@ -232,9 +309,33 @@ export default function LineupClient({
           onClick={handleStart}
           disabled={isPending}
         >
-          {isPending ? "Starting..." : "Start Game"}
+          {isPending ? "Saving..." : startLabel}
         </Button>
       </div>
     </div>
   );
+}
+
+// Seed editor state: hydrate from a previously-saved lineup (preserving order +
+// DNP) when present, then append any roster players not yet in it. Falls back to
+// the full roster for a brand-new game.
+function seedLineup(
+  players: Player[],
+  savedLineup: (GameLineup & { player: Player })[]
+): LineupEntry[] {
+  if (savedLineup.length === 0) {
+    return players.map((p) => ({ player: p, isDnp: false }));
+  }
+  const rank = (e: GameLineup) =>
+    e.status === "dnp" ? 9999 : e.batting_position ?? 999;
+  const ordered = [...savedLineup].sort((a, b) => rank(a) - rank(b));
+  const seeded = ordered.map((e) => ({
+    player: e.player,
+    isDnp: e.status === "dnp",
+  }));
+  const seen = new Set(seeded.map((s) => s.player.id));
+  const extras = players
+    .filter((p) => !seen.has(p.id))
+    .map((p) => ({ player: p, isDnp: false }));
+  return [...seeded, ...extras];
 }

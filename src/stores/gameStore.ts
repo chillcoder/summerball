@@ -32,6 +32,8 @@ interface GameState {
 
   // Self-AB preferences
   preferredSelfAbMode: SelfAbMode;
+  // Which roster player is the recorder ("me") — drives the self-AB flow.
+  selfPlayerId: string | null;
 
   // Game start time
   gameStartTime: number | null;
@@ -46,6 +48,7 @@ interface GameState {
   skipBatter: () => void;
   setPendingAtBat: (atBatId: string) => void;
   setSelfAbMode: (mode: SelfAbMode) => void;
+  setSelfPlayerId: (id: string | null) => void;
   endGame: () => void;
   reset: () => void;
 }
@@ -61,6 +64,7 @@ const initialState = {
   lastAbTime: null,
   undoAb: null,
   preferredSelfAbMode: "pending" as SelfAbMode,
+  selfPlayerId: null,
   gameStartTime: null,
 };
 
@@ -132,6 +136,8 @@ export const useGameStore = create<GameState>()(
 
       setSelfAbMode: (mode) => set({ preferredSelfAbMode: mode }),
 
+      setSelfPlayerId: (id) => set({ selfPlayerId: id }),
+
       endGame: () => set({ gameId: null, gameStartTime: null }),
 
       reset: () => set(initialState),
@@ -141,6 +147,7 @@ export const useGameStore = create<GameState>()(
       // Only persist preferences, not active game state
       partialize: (state) => ({
         preferredSelfAbMode: state.preferredSelfAbMode,
+        selfPlayerId: state.selfPlayerId,
       }),
     }
   )

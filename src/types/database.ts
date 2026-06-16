@@ -81,6 +81,7 @@ export interface Game {
   final_score_them: number | null;
   status: GameStatus;
   notes: string | null;
+  is_exhibition: boolean;
 }
 
 export interface GameLineup {
