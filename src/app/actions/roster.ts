@@ -64,22 +64,33 @@ export async function addGuestPlayer(name: string): Promise<Player> {
   return data as Player;
 }
 
-export async function addPlayer(formData: FormData) {
+export async function addPlayer(formData: FormData): Promise<Player> {
   const supabase = await createClient();
   const name = (formData.get("name") as string)?.trim();
   const isGuest = formData.get("is_guest") === "true";
 
   if (!name) throw new Error("Name is required");
 
-  const { error } = await supabase.from("players").insert({
-    team_id: TEAM_ID,
-    name,
-    is_active: true,
-    is_guest: isGuest,
-  });
+  const { data, error } = await supabase
+    .from("players")
+    .insert({
+      team_id: TEAM_ID,
+      name,
+      is_active: true,
+      is_guest: isGuest,
+    })
+    .select()
+    .single();
 
   if (error) throw new Error(error.message);
   revalidatePath("/roster");
+  return data as Player;
+}
+
+export async function renamePlayer(id: string, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name is required");
+  return updatePlayer(id, { name: trimmed });
 }
 
 export async function updatePlayer(

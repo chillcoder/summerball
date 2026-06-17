@@ -55,7 +55,9 @@ export async function createGame(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  redirect(`/games/${game.id}/lineup`);
+  // Return the id and let the client navigate, so a failure surfaces as a toast
+  // instead of an unhandled error in the transition.
+  return { gameId: game.id as string };
 }
 
 export async function saveLineup(

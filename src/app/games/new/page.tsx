@@ -3,9 +3,12 @@
 import { createGame } from "@/app/actions/games";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function NewGamePage() {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isTest, setIsTest] = useState(false);
   const today = new Date().toISOString().split("T")[0];
@@ -18,7 +21,14 @@ export default function NewGamePage() {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    startTransition(() => createGame(formData));
+    startTransition(async () => {
+      try {
+        const { gameId } = await createGame(formData);
+        router.push(`/games/${gameId}/lineup`);
+      } catch {
+        toast.error("Couldn't create the game. Make sure you're signed in.");
+      }
+    });
   }
 
   return (

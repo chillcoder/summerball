@@ -2,6 +2,7 @@ import { getGame, getGameLineup, getSeasonStatsMap } from "@/app/actions/games";
 import { getRosterPlayers } from "@/app/actions/roster";
 import LineupClient from "@/components/recording/LineupClient";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 
 export default async function LineupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,6 +17,12 @@ export default async function LineupPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="min-h-screen p-4 max-w-lg mx-auto">
+      <Link
+        href={game.status === "live" ? `/record/${game.id}` : "/"}
+        className="text-sm text-muted-foreground mb-4 block"
+      >
+        ← {game.status === "live" ? "Back to game" : "Home"}
+      </Link>
       <h1 className="text-2xl font-bold mb-1">
         {game.status === "live" ? "Edit Lineup" : "Set Lineup"}
       </h1>

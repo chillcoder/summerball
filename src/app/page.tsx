@@ -15,6 +15,7 @@ export default async function Home() {
   } = await supabase.auth.getUser();
 
   const liveGame = games.find((g) => g.status === "live");
+  const scheduledGames = games.filter((g) => g.status === "scheduled");
   const recentGames = games
     .filter((g) => g.status === "final" && !g.is_exhibition)
     .slice(0, 3);
@@ -36,6 +37,22 @@ export default async function Home() {
             </Button>
           </Link>
         )}
+
+        {user &&
+          scheduledGames.map((game) => (
+            <Link key={game.id} href={`/games/${game.id}/lineup`}>
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full border-amber-700 text-amber-300 hover:bg-amber-900/20"
+              >
+                Finish setup{game.opponent ? ` vs ${game.opponent}` : ""}
+                {game.is_exhibition && (
+                  <Badge variant="outline" className="ml-2 border-amber-500 text-amber-300">TEST</Badge>
+                )}
+              </Button>
+            </Link>
+          ))}
 
         {user && (
           <Link href="/games/new">
