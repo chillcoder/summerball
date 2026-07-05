@@ -45,7 +45,7 @@ function LoginForm() {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
-        className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500 text-base"
+        className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-base"
       />
       <Button type="submit" size="lg" className="w-full" disabled={loading}>
         {loading ? "Sending..." : "Send magic link"}

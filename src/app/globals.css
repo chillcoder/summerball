@@ -39,6 +39,12 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-gold: #d68f23;
+  --color-amber-deep: #c87d13;
+  --color-bk-teal: #738f8a;
+  --color-cream: #f8efdf;
+  --color-ink: #1e1c16;
+  --color-charcoal: #25292a;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -83,25 +89,28 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Beerkats brand palette (app runs dark-only via <html class="dark">):
+   Charcoal #25292A · Teal #738F8A · Beer Gold #D68F23 · Deep Amber #C87D13
+   Warm Cream #F8EFDF · Near Black #1E1C16 */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #1e1c16;
+  --foreground: #f8efdf;
+  --card: #25292a;
+  --card-foreground: #f8efdf;
+  --popover: #25292a;
+  --popover-foreground: #f8efdf;
+  --primary: #d68f23;
+  --primary-foreground: #1e1c16;
+  --secondary: #738f8a;
+  --secondary-foreground: #1e1c16;
+  --muted: #25292a;
+  --muted-foreground: rgb(248 239 223 / 62%);
+  --accent: #c87d13;
+  --accent-foreground: #1e1c16;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: rgb(115 143 138 / 25%);
+  --input: rgb(115 143 138 / 30%);
+  --ring: #d68f23;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -126,5 +135,37 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* Recording-screen feedback animations */
+@keyframes batter-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bar-pop {
+  from {
+    opacity: 0.5;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@layer utilities {
+  .animate-batter-in {
+    animation: batter-in 0.25s ease-out;
+  }
+  .animate-bar-pop {
+    animation: bar-pop 0.2s ease-out;
   }
 }

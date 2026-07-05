@@ -124,7 +124,7 @@ export default function FinalizeClient({
             value={scoreUs}
             onChange={(e) => setScoreUs(e.target.value)}
             placeholder="0"
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-border text-center text-xl font-bold focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-3 py-2 rounded-lg bg-card border border-border text-center text-xl font-bold focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
         <div>
@@ -138,7 +138,7 @@ export default function FinalizeClient({
             value={scoreThem}
             onChange={(e) => setScoreThem(e.target.value)}
             placeholder="0"
-            className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-border text-center text-xl font-bold focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-3 py-2 rounded-lg bg-card border border-border text-center text-xl font-bold focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
       </div>
@@ -160,7 +160,7 @@ export default function FinalizeClient({
           return (
             <div
               key={ab.id}
-              className="rounded-lg bg-zinc-900 border border-border p-3"
+              className="rounded-lg bg-card border border-border p-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -190,7 +190,7 @@ export default function FinalizeClient({
                   <button
                     onClick={() => setRbi(ab.id, -1)}
                     disabled={!canRbi || (ab.rbis ?? 0) === 0}
-                    className="w-7 h-7 rounded-md bg-zinc-800 border border-border disabled:opacity-30 active:scale-95 transition-transform"
+                    className="w-7 h-7 rounded-md bg-charcoal border border-border disabled:opacity-30 active:scale-95 transition-transform"
                   >
                     −
                   </button>
@@ -200,7 +200,7 @@ export default function FinalizeClient({
                   <button
                     onClick={() => setRbi(ab.id, 1)}
                     disabled={!canRbi}
-                    className="w-7 h-7 rounded-md bg-zinc-800 border border-border disabled:opacity-30 active:scale-95 transition-transform"
+                    className="w-7 h-7 rounded-md bg-charcoal border border-border disabled:opacity-30 active:scale-95 transition-transform"
                   >
                     +
                   </button>
@@ -217,8 +217,8 @@ export default function FinalizeClient({
                         onClick={() => setOutcome(ab.id, outcome)}
                         className={`py-2 px-1 rounded-md text-xs font-medium border transition-colors ${
                           outcome === ab.outcome
-                            ? "border-zinc-400 bg-zinc-700"
-                            : "border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                            ? "border-gold bg-bk-teal/25"
+                            : "border-border bg-charcoal hover:bg-bk-teal/20"
                         }`}
                       >
                         {outcome}

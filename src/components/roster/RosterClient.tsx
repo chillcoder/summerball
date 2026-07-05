@@ -91,7 +91,7 @@ export default function RosterClient({ initialPlayers }: { initialPlayers: Playe
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
-            className="flex-1 px-3 py-2 rounded-lg bg-zinc-900 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="flex-1 px-3 py-2 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <Button type="submit" disabled={isPending}>
             Add
@@ -184,7 +184,7 @@ function PlayerRow({
             }
           }}
           onBlur={commit}
-          className="flex-1 px-2 py-1 rounded bg-zinc-900 border border-zinc-600 text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          className="flex-1 px-2 py-1 rounded bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
       ) : (
         <button

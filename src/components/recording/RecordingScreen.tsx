@@ -8,24 +8,31 @@ import {
   queueRecordAtBat,
   queueUpdateAtBat,
   queueDeleteAtBat,
+  queueSetInning,
   useSyncStatus,
 } from "@/lib/offline/queue";
-import type { AtBat, AtBatOutcome, Game, OutcomeCategory } from "@/types/database";
+import type { AtBat, AtBatOutcome, Game, OutcomeCategory, PlayerStats } from "@/types/database";
 import {
   OUTCOMES_BY_CATEGORY,
   OUTCOME_LABELS,
   OUTCOME_CATEGORIES,
 } from "@/types/database";
+import { formatStat } from "@/lib/stats/compute";
 import { Badge } from "@/components/ui/badge";
 import { useGameStore, type SelfAbMode } from "@/stores/gameStore";
+import GlossarySheet from "@/components/GlossarySheet";
 import EditLogDrawer from "./EditLogDrawer";
+
+// Outcomes that can drive in a run — only these surface the RBI stepper.
+const RBI_ELIGIBLE: AtBatOutcome[] = ["1B", "2B", "3B", "HR", "FC", "ROE", "SAC", "BB"];
+
+// A HR always drives in the batter himself; a sac fly by definition scores a
+// runner. Everything else starts at 0 and is bumped with the stepper.
+const DEFAULT_RBIS: Partial<Record<AtBatOutcome, number>> = { HR: 1, SAC: 1 };
 
 // Placeholder outcome stored on a "fill in after" pending at-bat. While pending
 // it's excluded from every stat view, so the value is irrelevant until resolved.
 const PENDING_PLACEHOLDER: AtBatOutcome = "groundout";
-
-// Outcomes that can drive in a run — only these surface the live RBI stepper.
-const RBI_ELIGIBLE: AtBatOutcome[] = ["1B", "2B", "3B", "HR", "FC", "ROE", "SAC", "BB"];
 
 type GameLineupEntry = {
   id: string;
@@ -42,6 +49,12 @@ function haptic(pattern: number[]) {
   if ("vibrate" in navigator) navigator.vibrate(pattern);
 }
 
+function ordinal(n: number) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+
 function computeTodayStats(atBats: AtBat[], playerId: string) {
   const abs = atBats.filter((ab) => ab.player_id === playerId && !ab.is_pending);
   const hits = abs.filter((ab) => ["1B", "2B", "3B", "HR"].includes(ab.outcome)).length;
@@ -54,36 +67,31 @@ export default function RecordingScreen({
   lineup,
   initialAtBats,
   userId,
+  statsByPlayer = {},
 }: {
   game: Game;
   lineup: GameLineupEntry[];
   initialAtBats: AtBat[];
   userId: string;
+  statsByPlayer?: Record<string, PlayerStats>;
 }) {
   const [atBats, setAtBats] = useState<AtBat[]>(initialAtBats);
   const [currentIndex, setCurrentIndex] = useState(() => {
     // Resume from where we left off based on sequence count
     if (initialAtBats.length === 0 || lineup.length === 0) return 0;
     const lastSequence = Math.max(...initialAtBats.map((ab) => ab.sequence_in_game));
-    // Count how many times each position has batted
-    const absByPlayer: Record<string, number> = {};
-    for (const ab of initialAtBats) {
-      absByPlayer[ab.player_id] = (absByPlayer[ab.player_id] ?? 0) + 1;
-    }
-    // Find the next batter in lineup cycle
     const lastAb = initialAtBats.find((ab) => ab.sequence_in_game === lastSequence);
     if (!lastAb) return 0;
     const lastIdx = lineup.findIndex((e) => e.player_id === lastAb.player_id);
     return lastIdx >= 0 ? (lastIdx + 1) % lineup.length : 0;
   });
   const [step, setStep] = useState<Step>({ type: "category" });
-  const [undoAb, setUndoAb] = useState<{ ab: AtBat; expiresAt: number } | null>(null);
-  // The just-committed run-scoring at-bat, shown with a live RBI stepper until
-  // the next at-bat is recorded. Keyed by sequence (stable across optimistic→saved).
-  const [rbiBar, setRbiBar] = useState<{ seq: number; playerName: string; outcome: AtBatOutcome } | null>(null);
+  // The just-recorded at-bat: shown in the last-play bar with RBI stepper +
+  // Undo until the next at-bat replaces it. Resolved from atBats by id so
+  // RBI edits stay in sync.
+  const [lastPlayId, setLastPlayId] = useState<string | null>(null);
+  const [inning, setInning] = useState(game.current_inning ?? 1);
   const [showEditLog, setShowEditLog] = useState(false);
-  // Live so the resolver badge updates as pending at-bats are created/resolved.
-  const pendingCount = atBats.filter((ab) => ab.is_pending).length;
   const unsynced = useSyncStatus();
   // self-AB flow state: null = normal; "choosing" = the recorder is up and
   // picking how to handle it; "recording" = they chose to record it now.
@@ -96,19 +104,25 @@ export default function RecordingScreen({
   const preferredSelfAbMode = useGameStore((s) => s.preferredSelfAbMode);
   const setSelfAbMode = useGameStore((s) => s.setSelfAbMode);
 
+  const pendingCount = atBats.filter((ab) => ab.is_pending).length;
   const currentBatter = lineup[currentIndex];
   const onDeckBatter = lineup[(currentIndex + 1) % lineup.length];
   const isSelfAtBat = !!selfPlayerId && currentBatter?.player_id === selfPlayerId;
 
-  // Track today stats (current game)
   const currentTodayStats = currentBatter ? computeTodayStats(atBats, currentBatter.player_id) : null;
+  const currentSeasonStats = currentBatter ? statsByPlayer[currentBatter.player_id] : undefined;
+  const onDeckSeasonStats = onDeckBatter ? statsByPlayer[onDeckBatter.player_id] : undefined;
+  const lastAbForBatter = currentBatter
+    ? [...atBats].reverse().find((ab) => ab.player_id === currentBatter.player_id)
+    : undefined;
 
-  // Clear undo after 3s
-  useEffect(() => {
-    if (!undoAb) return;
-    const timer = setTimeout(() => setUndoAb(null), 3000);
-    return () => clearTimeout(timer);
-  }, [undoAb]);
+  const lastPlay = lastPlayId ? atBats.find((ab) => ab.id === lastPlayId) : undefined;
+  const lastPlayName = lastPlay
+    ? lineup.find((e) => e.player_id === lastPlay.player_id)?.player.name ?? "—"
+    : "";
+  // Only the most recent at-bat is undoable — protects sequence integrity.
+  const lastPlayUndoable =
+    !!lastPlay && atBats.length > 0 && atBats[atBats.length - 1].id === lastPlay.id;
 
   // When the recorder's own spot comes up, surface the self-AB chooser; reset
   // once the lineup has moved on.
@@ -119,43 +133,6 @@ export default function RecordingScreen({
       setSelfFlow((f) => (f === null ? f : null));
     }
   }, [isSelfAtBat]);
-
-  // "Fill in after": log a pending placeholder for the recorder's at-bat and
-  // advance. Resolved later from the Edit Log (which clears is_pending).
-  const recordSelfPending = useCallback(() => {
-    if (!currentBatter) return;
-    haptic([30, 50, 30]);
-    const sequenceInGame = atBats.length + 1;
-    const ab: AtBat = {
-      id: crypto.randomUUID(),
-      game_id: game.id,
-      player_id: currentBatter.player_id,
-      sequence_in_game: sequenceInGame,
-      outcome: PENDING_PLACEHOLDER,
-      rbis: 0,
-      runs_scored: 0,
-      recorded_by_user_id: userId,
-      recorded_at: new Date().toISOString(),
-      is_pending: true,
-      was_self_ab: true,
-    };
-    setAtBats((prev) => [...prev, ab]);
-    setRbiBar(null);
-    setCurrentIndex((i) => (i + 1) % lineup.length);
-    setStep({ type: "category" });
-    setSelfAbMode("pending");
-    posthog.capture("self_ab_mode_chosen", { mode: "pending" });
-    void queueRecordAtBat({
-      id: ab.id,
-      gameId: game.id,
-      playerId: currentBatter.player_id,
-      outcome: PENDING_PLACEHOLDER,
-      sequenceInGame,
-      isPending: true,
-      wasSelfAb: true,
-    });
-    toast("Marked pending — resolve it from the Edit Log");
-  }, [currentBatter, game.id, atBats.length, lineup.length, userId, setSelfAbMode]);
 
   const handleCategoryTap = useCallback((category: OutcomeCategory) => {
     haptic([30]);
@@ -174,6 +151,7 @@ export default function RecordingScreen({
     const timeStep1ToStep2 = now - step1Time;
 
     const sequenceInGame = atBats.length + 1;
+    const autoRbis = DEFAULT_RBIS[outcome] ?? 0;
 
     // Optimistic local state
     const optimisticAb: AtBat = {
@@ -181,8 +159,9 @@ export default function RecordingScreen({
       game_id: game.id,
       player_id: currentBatter.player_id,
       sequence_in_game: sequenceInGame,
+      inning,
       outcome,
-      rbis: 0,
+      rbis: autoRbis,
       runs_scored: 0,
       recorded_by_user_id: userId,
       recorded_at: new Date().toISOString(),
@@ -191,21 +170,13 @@ export default function RecordingScreen({
     };
 
     setAtBats((prev) => [...prev, optimisticAb]);
-    setUndoAb({ ab: optimisticAb, expiresAt: now + 3000 });
+    setLastPlayId(optimisticAb.id);
     lastAbTimeRef.current = now;
-
-    // Surface the live RBI stepper for run-scoring outcomes; clear it otherwise.
-    setRbiBar(
-      RBI_ELIGIBLE.includes(outcome)
-        ? { seq: sequenceInGame, playerName: currentBatter.player.name, outcome }
-        : null
-    );
 
     // Advance batter
     setCurrentIndex((i) => (i + 1) % lineup.length);
     setStep({ type: "category" });
 
-    // PostHog event
     posthog.capture("at_bat_recorded", {
       game_id: game.id,
       player_id: currentBatter.player_id,
@@ -225,41 +196,88 @@ export default function RecordingScreen({
         playerId: currentBatter.player_id,
         outcome,
         sequenceInGame,
+        inning,
+        rbis: autoRbis,
         wasSelfAb,
       });
     } catch {
       toast.error("Couldn't save locally — check storage");
     }
-  }, [currentBatter, game.id, atBats.length, lineup.length, step, userId]);
+  }, [currentBatter, game.id, atBats.length, lineup.length, step, userId, inning]);
 
-  const handleSetRbi = useCallback((seq: number, delta: number) => {
+  // "Fill in after": log a pending placeholder for the recorder's at-bat and
+  // advance. Resolved later from the Edit Log (which clears is_pending).
+  const recordSelfPending = useCallback(() => {
+    if (!currentBatter) return;
+    haptic([30, 50, 30]);
+    const sequenceInGame = atBats.length + 1;
+    const ab: AtBat = {
+      id: crypto.randomUUID(),
+      game_id: game.id,
+      player_id: currentBatter.player_id,
+      sequence_in_game: sequenceInGame,
+      inning,
+      outcome: PENDING_PLACEHOLDER,
+      rbis: 0,
+      runs_scored: 0,
+      recorded_by_user_id: userId,
+      recorded_at: new Date().toISOString(),
+      is_pending: true,
+      was_self_ab: true,
+    };
+    setAtBats((prev) => [...prev, ab]);
+    setLastPlayId(ab.id);
+    setCurrentIndex((i) => (i + 1) % lineup.length);
+    setStep({ type: "category" });
+    setSelfAbMode("pending");
+    posthog.capture("self_ab_mode_chosen", { mode: "pending" });
+    void queueRecordAtBat({
+      id: ab.id,
+      gameId: game.id,
+      playerId: currentBatter.player_id,
+      outcome: PENDING_PLACEHOLDER,
+      sequenceInGame,
+      inning,
+      isPending: true,
+      wasSelfAb: true,
+    });
+    toast("Marked pending — resolve it from the Edit Log");
+  }, [currentBatter, game.id, atBats.length, lineup.length, userId, inning, setSelfAbMode]);
+
+  const handleSetRbi = useCallback((atBatId: string, delta: number) => {
     haptic([20]);
     setAtBats((prev) =>
       prev.map((ab) => {
-        if (ab.sequence_in_game !== seq) return ab;
+        if (ab.id !== atBatId) return ab;
         const next = Math.max(0, Math.min(4, (ab.rbis ?? 0) + delta));
-        // Queue the RBI edit; FIFO ordering guarantees it lands after the insert.
-        void queueUpdateAtBat(ab.id, { rbis: next });
+        if (next !== ab.rbis) void queueUpdateAtBat(ab.id, { rbis: next });
         return { ...ab, rbis: next };
       })
     );
   }, []);
 
   function handleUndo() {
-    if (!undoAb) return;
-    const { ab } = undoAb;
-    const timeToUndo = Date.now() - (undoAb.expiresAt - 3000);
-    setAtBats((prev) => prev.filter((a) => a.id !== ab.id));
-    setUndoAb(null);
-    setRbiBar((prev) => (prev?.seq === ab.sequence_in_game ? null : prev));
+    if (!lastPlay || !lastPlayUndoable) return;
+    haptic([20]);
+    const timeToUndo = Date.now() - new Date(lastPlay.recorded_at).getTime();
+    setAtBats((prev) => prev.filter((a) => a.id !== lastPlay.id));
+    setLastPlayId(null);
     // Go back one batter
     setCurrentIndex((i) => (i - 1 + lineup.length) % lineup.length);
     setStep({ type: "category" });
 
-    posthog.capture("at_bat_undone", { at_bat_id: ab.id, time_to_undo_ms: timeToUndo });
+    posthog.capture("at_bat_undone", { at_bat_id: lastPlay.id, time_to_undo_ms: timeToUndo });
 
     // Queue the delete; if the insert hasn't synced yet the queue cancels both.
-    void queueDeleteAtBat(ab.id);
+    void queueDeleteAtBat(lastPlay.id);
+  }
+
+  function handleEndInning() {
+    haptic([30]);
+    const next = inning + 1;
+    setInning(next);
+    void queueSetInning(game.id, next);
+    toast(`Inning ${next}`);
   }
 
   function handleSkip() {
@@ -271,127 +289,173 @@ export default function RecordingScreen({
     setCurrentIndex((i) => (i + 1) % lineup.length);
   }
 
+  const lastPlayRbiEligible =
+    !!lastPlay && !lastPlay.is_pending && RBI_ELIGIBLE.includes(lastPlay.outcome);
+
   return (
-    <div className="min-h-screen flex flex-col bg-zinc-950 text-white select-none">
+    <div className="min-h-screen flex flex-col bg-background text-cream select-none">
       {game.is_exhibition && (
-        <div className="bg-amber-600 text-black text-center text-xs font-bold py-1 tracking-wide">
+        <div className="bg-amber-deep text-ink text-center text-xs font-bold py-1 tracking-wide">
           TEST GAME — not counted toward season stats
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 border-b border-zinc-800">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-green-600 text-green-400 text-xs">LIVE</Badge>
-          <span className="text-sm text-zinc-400">
-            {game.opponent ? `vs ${game.opponent}` : "Game"}
+      <div className="flex items-center justify-between px-4 pt-safe pt-4 pb-3 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge variant="outline" className="border-bk-teal text-bk-teal text-xs shrink-0">LIVE</Badge>
+          <span className="border border-amber-deep/70 text-gold text-[11px] rounded px-1.5 py-px shrink-0">
+            Inn {inning}
           </span>
           {unsynced > 0 ? (
-            <span className="text-xs text-amber-400 flex items-center gap-1" title="At-bats saved locally, syncing when online">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              {unsynced} unsynced
+            <span className="text-xs text-gold flex items-center gap-1 shrink-0" title="At-bats saved locally, syncing when online">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />
+              {unsynced}
             </span>
           ) : (
-            <span className="text-xs text-zinc-600 flex items-center gap-1" title="All at-bats synced">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-600" />
-              Saved
+            <span className="text-xs text-muted-foreground/70 flex items-center gap-1 shrink-0" title="All at-bats synced">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-bk-teal" />
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {pendingCount > 0 && (
             <button onClick={() => setShowEditLog(true)} aria-label="Resolve pending at-bats">
               <Badge variant="destructive" className="text-xs">{pendingCount} pending</Badge>
             </button>
           )}
+          <GlossarySheet />
           <button
             onClick={() => router.push(`/games/${game.id}/lineup`)}
-            className="text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded"
           >
             Lineup
           </button>
           <button
             onClick={() => setShowEditLog(true)}
-            className="text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded"
           >
             Edit Log
           </button>
           <button
             onClick={() => router.push(`/games/${game.id}/finalize`)}
-            className="text-xs text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded"
+            className="text-xs font-medium text-gold hover:text-amber-deep transition-colors px-1.5 py-1 rounded"
           >
-            End
+            End game
           </button>
         </div>
       </div>
 
-      {/* Current batter */}
-      <div className="px-4 pt-6 pb-4">
-        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-1">Now batting</p>
-        <h1 className="text-4xl font-bold tracking-tight">
-          {currentBatter?.player.name ?? "—"}
-        </h1>
-        {currentTodayStats && (
-          <p className="text-zinc-400 text-sm mt-1">
-            {currentTodayStats.hits}-for-{currentTodayStats.ab} today
+      {/* Hero: current batter stat card (animates on batter change) */}
+      <div
+        key={`${currentBatter?.player_id ?? "none"}-${currentIndex}`}
+        className="px-4 pt-4 pb-2 animate-batter-in"
+      >
+        <div className="rounded-2xl bg-card border border-border border-l-4 border-l-gold px-4 py-3.5">
+          <div className="flex items-center gap-2">
+            <span className="bg-gold text-ink text-xs font-bold rounded-full px-2.5 py-0.5">
+              {ordinal(currentIndex + 1)}
+            </span>
+            <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+              Now batting
+            </span>
+            {game.opponent && (
+              <span className="ml-auto text-[11px] text-muted-foreground/70 truncate">
+                vs {game.opponent}
+              </span>
+            )}
+          </div>
+          <h1 className="text-4xl font-bold tracking-tight mt-1.5">
+            {currentBatter?.player.name ?? "—"}
+          </h1>
+          <div className="flex flex-wrap gap-1.5 mt-2.5">
+            {currentTodayStats && (
+              <span className="bg-bk-teal/20 text-cream text-xs rounded-md px-2 py-0.5">
+                Today {currentTodayStats.hits}-for-{currentTodayStats.ab}
+              </span>
+            )}
+            {currentSeasonStats && currentSeasonStats.ab > 0 && (
+              <>
+                <span className="bg-bk-teal/20 text-cream text-xs rounded-md px-2 py-0.5">
+                  AVG {formatStat(currentSeasonStats.avg, "avg")}
+                </span>
+                <span className="bg-bk-teal/20 text-cream text-xs rounded-md px-2 py-0.5">
+                  OPS {formatStat(currentSeasonStats.ops, "ops")}
+                </span>
+              </>
+            )}
+          </div>
+          {lastAbForBatter && (
+            <p className="text-xs text-gold/90 mt-2">
+              Last AB:{" "}
+              {lastAbForBatter.is_pending ? "Pending" : OUTCOME_LABELS[lastAbForBatter.outcome]}
+            </p>
+          )}
+        </div>
+
+        {/* On-deck */}
+        {onDeckBatter && onDeckBatter.player_id !== currentBatter?.player_id && (
+          <p className="text-xs text-muted-foreground/70 mt-2 ml-1">
+            On deck: <span className="text-muted-foreground">{onDeckBatter.player.name}</span>
+            {onDeckSeasonStats && onDeckSeasonStats.ab > 0 && (
+              <span className="text-muted-foreground/70">
+                {" "}· {formatStat(onDeckSeasonStats.avg, "avg")}
+              </span>
+            )}
           </p>
         )}
       </div>
 
-      {/* On-deck batter */}
-      {onDeckBatter && onDeckBatter.player_id !== currentBatter?.player_id && (
-        <div className="px-4 pb-4">
-          <p className="text-xs text-zinc-600">
-            On deck: <span className="text-zinc-400">{onDeckBatter.player.name}</span>
-          </p>
-        </div>
-      )}
+      {/* Action zone — bottom of the screen */}
+      <div className="flex-1 flex flex-col justify-end px-4 pb-safe pb-6 gap-3">
 
-      {/* At-bat count */}
-      <div className="px-4 pb-4 text-xs text-zinc-600">
-        AB #{atBats.filter((ab) => !ab.is_pending).length + 1} · {lineup.length} batters
-      </div>
-
-      {/* Action zone — bottom 60% */}
-      <div className="flex-1 flex flex-col justify-end px-4 pb-safe pb-8 gap-3">
-
-        {/* Live RBI stepper for the last run-scoring at-bat */}
-        {rbiBar && (
-          <div className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700">
-            <div className="min-w-0 text-sm">
-              <span className="font-medium">{rbiBar.playerName}</span>
-              <span className="text-zinc-500 ml-2">{OUTCOME_LABELS[rbiBar.outcome]}</span>
+        {/* Last play bar: outcome + RBI stepper + undo, until the next AB */}
+        {lastPlay && (
+          <div
+            key={lastPlay.id}
+            className="animate-bar-pop w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-card border border-border"
+          >
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground/70">Last play</p>
+              <p className="text-sm truncate">
+                <span className="font-medium">{lastPlayName}</span>
+                <span className="text-gold ml-1.5">
+                  {lastPlay.is_pending ? "Pending" : OUTCOME_LABELS[lastPlay.outcome]}
+                </span>
+              </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-zinc-500">RBI</span>
-              <button
-                onClick={() => handleSetRbi(rbiBar.seq, -1)}
-                className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-600 text-xl leading-none active:scale-90 transition-transform"
-                aria-label="Remove RBI"
-              >
-                −
-              </button>
-              <span className="w-6 text-center font-mono text-lg font-bold text-amber-300">
-                {atBats.find((a) => a.sequence_in_game === rbiBar.seq)?.rbis ?? 0}
-              </span>
-              <button
-                onClick={() => handleSetRbi(rbiBar.seq, 1)}
-                className="w-9 h-9 rounded-lg bg-amber-800/70 border border-amber-600 text-xl leading-none text-amber-200 active:scale-90 transition-transform"
-                aria-label="Add RBI"
-              >
-                +
-              </button>
+              {lastPlayUndoable && (
+                <button
+                  onClick={handleUndo}
+                  className="text-xs text-gold border border-gold/50 rounded-lg px-2.5 py-2 active:scale-95 transition-transform"
+                >
+                  ↩ Undo
+                </button>
+              )}
+              {lastPlayRbiEligible && (
+                <>
+                  <button
+                    onClick={() => handleSetRbi(lastPlay.id, -1)}
+                    className="w-9 h-9 rounded-lg bg-background border border-border text-xl leading-none active:scale-90 transition-transform"
+                    aria-label="Remove RBI"
+                  >
+                    −
+                  </button>
+                  <span className="w-5 text-center font-mono text-lg font-bold text-gold">
+                    {lastPlay.rbis ?? 0}
+                  </span>
+                  <button
+                    onClick={() => handleSetRbi(lastPlay.id, 1)}
+                    className="w-9 h-9 rounded-lg bg-amber-deep text-ink border border-gold text-xl leading-none active:scale-90 transition-transform"
+                    aria-label="Add RBI"
+                  >
+                    +
+                  </button>
+                  <span className="text-[11px] text-muted-foreground/70">RBI</span>
+                </>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Undo toast */}
-        {undoAb && (
-          <button
-            onClick={handleUndo}
-            className="w-full py-3 rounded-xl bg-amber-900/60 border border-amber-700 text-amber-300 font-medium text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
-          >
-            ↩ Undo {OUTCOME_LABELS[undoAb.ab.outcome]}
-          </button>
         )}
 
         {selfFlow === "choosing" ? (
@@ -408,7 +472,7 @@ export default function RecordingScreen({
         ) : (
           <>
             {selfFlow === "recording" && (
-              <div className="w-full text-center px-4 py-2 rounded-xl bg-amber-900/40 border border-amber-700 text-amber-300 text-sm">
+              <div className="w-full text-center px-4 py-2 rounded-xl bg-amber-deep/25 border border-gold/60 text-gold text-sm">
                 Recording your at-bat — hand the phone to{" "}
                 {onDeckBatter?.player.name ?? "a teammate"}
               </div>
@@ -419,7 +483,7 @@ export default function RecordingScreen({
                 {/* Step 1: Category */}
                 <CategoryButton
                   label="HIT"
-                  color="green"
+                  color="gold"
                   onTap={() => handleCategoryTap("hit")}
                 />
                 <CategoryButton
@@ -429,18 +493,10 @@ export default function RecordingScreen({
                 />
                 <CategoryButton
                   label="OTHER"
-                  color="zinc"
+                  color="teal"
                   onTap={() => handleCategoryTap("other")}
                   sublabel="Walk · Error · SAC"
                 />
-
-                {/* Skip batter */}
-                <button
-                  onClick={handleSkip}
-                  className="text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors py-2"
-                >
-                  Skip {currentBatter?.player.name}
-                </button>
               </>
             ) : (
               <>
@@ -465,11 +521,30 @@ export default function RecordingScreen({
                     });
                     setStep({ type: "category" });
                   }}
-                  className="text-center text-sm text-zinc-500 hover:text-zinc-300 transition-colors py-2 flex items-center justify-center gap-1"
+                  className="text-center text-sm text-muted-foreground hover:text-foreground transition-colors py-2 flex items-center justify-center gap-1"
                 >
                   ← Back
                 </button>
               </>
+            )}
+
+            {/* Utility row */}
+            {step.type === "category" && (
+              <div className="flex items-center justify-center gap-5 py-1.5">
+                <button
+                  onClick={handleSkip}
+                  className="text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors py-1"
+                >
+                  Skip {currentBatter?.player.name}
+                </button>
+                <span className="text-muted-foreground/40 text-xs">·</span>
+                <button
+                  onClick={handleEndInning}
+                  className="text-xs text-gold/80 hover:text-gold transition-colors py-1"
+                >
+                  End inning {inning} →
+                </button>
+              </div>
             )}
           </>
         )}
@@ -502,21 +577,21 @@ function SelfAbPanel({
 }) {
   const base =
     "w-full py-6 rounded-2xl border font-bold text-2xl tracking-wide transition-all active:scale-98";
-  const highlight = "bg-amber-700 hover:bg-amber-600 border-amber-500";
-  const plain = "bg-zinc-800 hover:bg-zinc-700 border-zinc-700";
+  const highlight = "bg-amber-deep text-cream hover:bg-gold hover:text-ink border-gold";
+  const plain = "bg-charcoal border-border hover:bg-bk-teal/20";
 
   return (
     <div className="space-y-3">
       <div className="text-center mb-1">
-        <p className="text-xs uppercase tracking-widest text-amber-400 mb-1">Your at-bat</p>
-        <p className="text-sm text-zinc-400">You&apos;re up — record it now, or fill it in after.</p>
+        <p className="text-xs uppercase tracking-widest text-gold mb-1">Your at-bat</p>
+        <p className="text-sm text-muted-foreground">You&apos;re up — record it now, or fill it in after.</p>
       </div>
       <button
         onClick={onRecordNow}
         className={`${base} ${preferred === "handoff" ? highlight : plain}`}
       >
         Record now
-        <p className="text-xs font-normal text-white/60 mt-0.5">
+        <p className="text-xs font-normal opacity-70 mt-0.5">
           Hand to {nextName ?? "a teammate"} to tap the outcome
         </p>
       </button>
@@ -525,7 +600,7 @@ function SelfAbPanel({
         className={`${base} ${preferred === "pending" ? highlight : plain}`}
       >
         Fill in after
-        <p className="text-xs font-normal text-white/60 mt-0.5">
+        <p className="text-xs font-normal opacity-70 mt-0.5">
           Mark pending · resolve from the Edit Log
         </p>
       </button>
@@ -540,14 +615,14 @@ function CategoryButton({
   sublabel,
 }: {
   label: string;
-  color: "green" | "red" | "zinc";
+  color: "gold" | "red" | "teal";
   onTap: () => void;
   sublabel?: string;
 }) {
   const colorMap = {
-    green: "bg-green-700 hover:bg-green-600 active:bg-green-800 border-green-600",
-    red: "bg-red-800 hover:bg-red-700 active:bg-red-900 border-red-700",
-    zinc: "bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-900 border-zinc-700",
+    gold: "bg-gold hover:bg-amber-deep active:bg-amber-deep border-amber-deep text-ink",
+    red: "bg-red-800 hover:bg-red-700 active:bg-red-900 border-red-700 text-cream",
+    teal: "bg-bk-teal hover:bg-bk-teal/85 active:bg-bk-teal/75 border-bk-teal text-ink",
   };
 
   return (
@@ -557,7 +632,7 @@ function CategoryButton({
     >
       {label}
       {sublabel && (
-        <p className="text-xs font-normal text-white/60 mt-0.5">{sublabel}</p>
+        <p className="text-xs font-normal opacity-70 mt-0.5">{sublabel}</p>
       )}
     </button>
   );
@@ -573,7 +648,7 @@ function OutcomeButton({
   return (
     <button
       onClick={onTap}
-      className="w-full py-7 rounded-2xl border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-900 font-bold text-lg tracking-wide transition-all active:scale-98"
+      className="w-full py-7 rounded-2xl border border-border bg-charcoal hover:bg-bk-teal/20 active:bg-ink text-cream font-bold text-lg tracking-wide transition-all active:scale-98"
     >
       {OUTCOME_LABELS[outcome]}
     </button>

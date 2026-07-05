@@ -1,10 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
-import { getGame } from "@/app/actions/games";
+import { getGame, getGameLineup } from "@/app/actions/games";
+import { getGameAtBats } from "@/app/actions/atBats";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { OUTCOME_LABELS } from "@/types/database";
-import type { AtBat } from "@/types/database";
+import GlossarySheet from "@/components/GlossarySheet";
+import PastGameEditor from "@/components/recording/PastGameEditor";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -12,10 +13,19 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
   const game = await getGame(id);
   if (!game) notFound();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { data: boxScore } = await supabase
     .from("game_box_score")
     .select("*")
     .eq("game_id", id);
+
+  // Signed-in users can edit at-bats — even on final games ("I was safe!").
+  const [editAtBats, editLineup] = user
+    ? await Promise.all([getGameAtBats(id), getGameLineup(id)])
+    : [null, null];
 
   const statusLabel: Record<string, string> = {
     scheduled: "Scheduled",
@@ -30,7 +40,10 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
           TEST GAME — not counted toward season stats
         </div>
       )}
-      <Link href="/" className="text-sm text-muted-foreground mb-4 block">← Home</Link>
+      <div className="flex items-center justify-between mb-4">
+        <Link href="/" className="text-sm text-muted-foreground">← Home</Link>
+        <GlossarySheet />
+      </div>
 
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -118,6 +131,10 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
       {boxScore?.length === 0 && (
         <p className="text-muted-foreground text-center py-8">No stats recorded yet</p>
+      )}
+
+      {user && editAtBats && editLineup && editAtBats.length > 0 && (
+        <PastGameEditor gameId={id} initialAtBats={editAtBats} lineup={editLineup} />
       )}
     </main>
   );

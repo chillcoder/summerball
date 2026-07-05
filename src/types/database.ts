@@ -82,6 +82,7 @@ export interface Game {
   status: GameStatus;
   notes: string | null;
   is_exhibition: boolean;
+  current_inning: number;
 }
 
 export interface GameLineup {
@@ -97,6 +98,7 @@ export interface AtBat {
   game_id: string;
   player_id: string;
   sequence_in_game: number;
+  inning: number;
   outcome: AtBatOutcome;
   rbis: number;
   runs_scored: number;

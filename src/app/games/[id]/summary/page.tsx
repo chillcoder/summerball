@@ -43,7 +43,7 @@ export default async function GameSummaryPage({ params }: { params: Promise<{ id
           { label: "RBI", value: totalRbi },
           { label: "HR", value: totalHr },
         ].map(({ label, value }) => (
-          <div key={label} className="rounded-lg bg-zinc-900 border border-border p-4 text-center">
+          <div key={label} className="rounded-lg bg-card border border-border p-4 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-widest">{label}</p>
             <p className="text-3xl font-bold mt-1">{value}</p>
           </div>
@@ -52,7 +52,7 @@ export default async function GameSummaryPage({ params }: { params: Promise<{ id
 
       <div className="flex flex-col gap-3 mt-auto">
         <Link href={`/games/${id}/infographic`}>
-          <Button className="w-full font-bold bg-amber-500 hover:bg-amber-400 text-zinc-950">
+          <Button className="w-full font-bold">
             Generate Infographic
           </Button>
         </Link>

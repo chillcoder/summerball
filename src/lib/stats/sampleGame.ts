@@ -48,6 +48,7 @@ export function sampleAtBats(): AtBat[] {
         game_id: "sample-game",
         player_id: player.id,
         sequence_in_game: seq++,
+        inning: 1,
         outcome,
         rbis: line.rbis[i] ?? 0,
         runs_scored: 0,

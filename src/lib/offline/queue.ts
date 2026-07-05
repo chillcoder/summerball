@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getDb } from "./db";
 import { recordAtBat, updateAtBat, deleteAtBat } from "@/app/actions/atBats";
+import { setGameInning } from "@/app/actions/games";
 import type { AtBat } from "@/types/database";
 
 // The in-game at-bat mutations are the ones that fire rapidly during play and
@@ -11,11 +12,13 @@ import type { AtBat } from "@/types/database";
 type RecordArgs = Parameters<typeof recordAtBat>[0];
 type UpdateArgs = { id: string; updates: Parameters<typeof updateAtBat>[1] };
 type DeleteArgs = { id: string };
+type SetInningArgs = { gameId: string; inning: number };
 
 export type QueuedOp =
   | { op: "recordAtBat"; args: RecordArgs }
   | { op: "updateAtBat"; args: UpdateArgs }
-  | { op: "deleteAtBat"; args: DeleteArgs };
+  | { op: "deleteAtBat"; args: DeleteArgs }
+  | { op: "setInning"; args: SetInningArgs };
 
 async function dispatch(op: string, args: unknown): Promise<void> {
   switch (op) {
@@ -30,6 +33,11 @@ async function dispatch(op: string, args: unknown): Promise<void> {
     case "deleteAtBat":
       await deleteAtBat((args as DeleteArgs).id);
       return;
+    case "setInning": {
+      const a = args as SetInningArgs;
+      await setGameInning(a.gameId, a.inning);
+      return;
+    }
     default:
       throw new Error(`Unknown sync op: ${op}`);
   }
@@ -150,6 +158,9 @@ export function queueUpdateAtBat(id: string, updates: UpdateArgs["updates"]): Pr
 }
 export function queueDeleteAtBat(id: string): Promise<void> {
   return enqueue({ op: "deleteAtBat", args: { id } });
+}
+export function queueSetInning(gameId: string, inning: number): Promise<void> {
+  return enqueue({ op: "setInning", args: { gameId, inning } });
 }
 
 export type { AtBat };

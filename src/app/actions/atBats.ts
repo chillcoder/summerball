@@ -12,6 +12,7 @@ export async function recordAtBat(params: {
   playerId: string;
   outcome: AtBatOutcome;
   sequenceInGame: number;
+  inning?: number;
   rbis?: number;
   runsScored?: number;
   isPending?: boolean;
@@ -28,6 +29,7 @@ export async function recordAtBat(params: {
     player_id: params.playerId,
     outcome: params.outcome,
     sequence_in_game: params.sequenceInGame,
+    inning: params.inning ?? 1,
     rbis: params.rbis ?? 0,
     runs_scored: params.runsScored ?? 0,
     recorded_by_user_id: user?.id ?? null,
@@ -53,6 +55,7 @@ export async function recordAtBat(params: {
       game_id: params.gameId,
       player_id: params.playerId,
       sequence_in_game: params.sequenceInGame,
+      inning: params.inning ?? 1,
       outcome: params.outcome,
       rbis: params.rbis ?? 0,
       runs_scored: params.runsScored ?? 0,

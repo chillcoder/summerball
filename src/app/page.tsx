@@ -30,7 +30,7 @@ export default async function Home() {
       <div className="flex flex-col gap-3 w-full max-w-sm">
         {liveGame && (
           <Link href={`/record/${liveGame.id}`}>
-            <Button size="lg" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold">
+            <Button size="lg" className="w-full bg-green-600 hover:bg-green-700 text-cream font-bold">
               Resume Live Game
               {liveGame.opponent && ` vs ${liveGame.opponent}`}
               <Badge variant="outline" className="ml-2 border-green-400 text-green-300">LIVE</Badge>
@@ -98,7 +98,7 @@ export default async function Home() {
           <p className="text-xs text-muted-foreground uppercase tracking-widest mb-2">Recent Games</p>
           <div className="flex flex-col gap-2">
             {recentGames.map((game) => (
-              <Link key={game.id} href={`/games/${game.id}`} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-zinc-600 transition-colors">
+              <Link key={game.id} href={`/games/${game.id}`} className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-bk-teal/60 transition-colors">
                 <span className="text-sm font-medium">
                   {game.opponent ? `vs ${game.opponent}` : "No opponent"}
                 </span>

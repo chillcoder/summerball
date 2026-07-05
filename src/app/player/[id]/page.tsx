@@ -44,7 +44,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
           {/* Big four stats */}
           <div className="grid grid-cols-4 gap-3 mt-6">
             {(["avg", "obp", "slg", "ops"] as const).map((key) => (
-              <div key={key} className="rounded-lg bg-zinc-900 border border-border p-3 text-center">
+              <div key={key} className="rounded-lg bg-card border border-border p-3 text-center">
                 <p className="text-xs text-muted-foreground uppercase tracking-widest">{key}</p>
                 <p className="text-xl font-bold font-mono mt-1">
                   {formatStat(stats[key], key)}
@@ -70,7 +70,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
           </div>
 
           {/* Hits breakdown */}
-          <div className="mt-4 rounded-lg bg-zinc-900 border border-border p-4">
+          <div className="mt-4 rounded-lg bg-card border border-border p-4">
             <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Hit breakdown</p>
             <div className="grid grid-cols-4 gap-2 text-center">
               {[
@@ -96,7 +96,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
                   <Link
                     key={g.game_id}
                     href={`/games/${g.game_id}`}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-zinc-600 transition-colors"
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-bk-teal/60 transition-colors"
                   >
                     <div>
                       <p className="text-sm font-medium">

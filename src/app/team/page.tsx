@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import TeamStatsClient from "@/components/stats/TeamStatsClient";
+import GlossarySheet from "@/components/GlossarySheet";
 import Link from "next/link";
 import type { PlayerStats } from "@/types/database";
 
@@ -29,7 +30,10 @@ export default async function TeamPage() {
           <h1 className="text-2xl font-bold">{teamData?.name ?? "Team"}</h1>
           <p className="text-muted-foreground text-sm">Season stats</p>
         </div>
-        <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">Home</Link>
+        <div className="flex items-center gap-3">
+          <GlossarySheet />
+          <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">Home</Link>
+        </div>
       </div>
 
       <TeamStatsClient stats={playerStats} />

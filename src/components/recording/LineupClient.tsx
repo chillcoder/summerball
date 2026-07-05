@@ -59,8 +59,8 @@ function SortablePlayer({
       style={style}
       className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
         entry.isDnp
-          ? "border-border opacity-40 bg-zinc-900/50"
-          : "border-border bg-zinc-900 hover:border-zinc-600"
+          ? "border-border opacity-40 bg-card/50"
+          : "border-border bg-card hover:border-bk-teal/60"
       }`}
     >
       {/* Drag handle */}
@@ -90,10 +90,10 @@ function SortablePlayer({
       <div className="flex-1 min-w-0">
         <span className="font-medium">{entry.player.name}</span>
         {entry.player.is_guest && (
-          <span className="ml-2 text-xs text-zinc-500">guest</span>
+          <span className="ml-2 text-xs text-muted-foreground">guest</span>
         )}
         {explanation && !entry.isDnp && (
-          <p className="text-xs text-zinc-500 truncate">{explanation}</p>
+          <p className="text-xs text-muted-foreground truncate">{explanation}</p>
         )}
       </div>
 
@@ -241,7 +241,7 @@ export default function LineupClient({
           <select
             value={selfPlayerId ?? ""}
             onChange={(e) => setSelfPlayerId(e.target.value || null)}
-            className="bg-zinc-900 border border-border rounded px-2 py-1 text-foreground text-xs max-w-[9rem] truncate"
+            className="bg-card border border-border rounded px-2 py-1 text-foreground text-xs max-w-[9rem] truncate"
           >
             <option value="">— not playing —</option>
             {players.map((p) => (
@@ -290,7 +290,7 @@ export default function LineupClient({
           value={guestName}
           onChange={(e) => setGuestName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addGuest()}
-          className="flex-1 px-3 py-2 rounded-lg bg-zinc-900 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500 text-sm"
+          className="flex-1 px-3 py-2 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
         />
         <Button variant="outline" size="sm" onClick={addGuest} disabled={!guestName.trim()}>
           Add

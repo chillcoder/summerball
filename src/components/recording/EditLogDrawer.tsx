@@ -21,6 +21,7 @@ export default function EditLogDrawer({
   lineup,
   gameId,
   onAtBatUpdated,
+  source = "live",
 }: {
   open: boolean;
   onClose: () => void;
@@ -28,6 +29,7 @@ export default function EditLogDrawer({
   lineup: LineupEntry[];
   gameId: string;
   onAtBatUpdated: (ab: AtBat) => void;
+  source?: "live" | "post_game";
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -43,7 +45,7 @@ export default function EditLogDrawer({
       at_bat_id: ab.id,
       from_outcome: oldOutcome,
       to_outcome: newOutcome,
-      source: "live",
+      source,
     });
     // Picking an outcome for a pending (self-)at-bat also resolves it.
     if (wasPending) {
@@ -71,22 +73,22 @@ export default function EditLogDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="bottom" className="h-[80vh] bg-zinc-950 border-zinc-800">
+      <SheetContent side="bottom" className="h-[80vh] bg-background border-border">
         <SheetHeader>
-          <SheetTitle className="text-white">At-bat log</SheetTitle>
+          <SheetTitle className="text-cream">At-bat log</SheetTitle>
         </SheetHeader>
         <div className="overflow-y-auto mt-4 space-y-2 pb-8">
           {sorted.length === 0 && (
-            <p className="text-zinc-500 text-sm text-center py-8">No at-bats yet</p>
+            <p className="text-muted-foreground text-sm text-center py-8">No at-bats yet</p>
           )}
           {sorted.map((ab) => (
-            <div key={ab.id} className="p-3 rounded-lg bg-zinc-900 border border-zinc-800">
+            <div key={ab.id} className="p-3 rounded-lg bg-card border border-border">
               <div className="flex items-center justify-between">
                 <div>
                   <span className="font-medium text-sm">
                     {playerMap[ab.player_id] ?? "Unknown"}
                   </span>
-                  <span className="text-zinc-500 text-xs ml-2">#{ab.sequence_in_game}</span>
+                  <span className="text-muted-foreground text-xs ml-2">#{ab.sequence_in_game}</span>
                   {ab.is_pending && (
                     <span className="ml-2 text-xs text-amber-400">pending</span>
                   )}
@@ -96,7 +98,7 @@ export default function EditLogDrawer({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-xs text-zinc-500 h-7 px-2"
+                    className="text-xs text-muted-foreground h-7 px-2"
                     onClick={() => setEditingId(editingId === ab.id ? null : ab.id)}
                   >
                     Edit
@@ -114,8 +116,8 @@ export default function EditLogDrawer({
                         disabled={isPending}
                         className={`py-2 px-2 rounded-lg text-xs font-medium border transition-colors ${
                           outcome === ab.outcome
-                            ? "border-zinc-400 bg-zinc-700"
-                            : "border-zinc-700 bg-zinc-800 hover:bg-zinc-700"
+                            ? "border-gold bg-bk-teal/25"
+                            : "border-border bg-charcoal hover:bg-bk-teal/20"
                         }`}
                       >
                         {OUTCOME_LABELS[outcome]}

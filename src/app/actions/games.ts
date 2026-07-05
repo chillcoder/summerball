@@ -92,6 +92,17 @@ export async function startGame(gameId: string) {
   redirect(`/record/${gameId}`);
 }
 
+// Persist the current inning so a mid-game reload resumes where we were.
+export async function setGameInning(gameId: string, inning: number) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("games")
+    .update({ current_inning: inning })
+    .eq("id", gameId);
+
+  if (error) throw new Error(error.message);
+}
+
 export async function endGame(
   gameId: string,
   finalScoreUs?: number,

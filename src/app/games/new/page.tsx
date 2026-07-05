@@ -43,7 +43,7 @@ export default function NewGamePage() {
             name="opponent"
             type="text"
             placeholder="Team name"
-            className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
@@ -53,7 +53,7 @@ export default function NewGamePage() {
             name="played_at"
             type="date"
             defaultValue={today}
-            className="w-full px-4 py-3 rounded-lg bg-zinc-900 border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
@@ -62,14 +62,14 @@ export default function NewGamePage() {
           <div className="grid grid-cols-2 gap-3">
             <label className="relative">
               <input type="radio" name="lineup_mode" value="continuous" defaultChecked className="sr-only peer" />
-              <div className="p-4 rounded-lg border border-border peer-checked:border-zinc-400 peer-checked:bg-zinc-800 cursor-pointer text-center transition-colors">
+              <div className="p-4 rounded-lg border border-border peer-checked:border-gold peer-checked:bg-charcoal cursor-pointer text-center transition-colors">
                 <p className="font-medium">Continuous</p>
                 <p className="text-xs text-muted-foreground mt-1">Batting order cycles through the game</p>
               </div>
             </label>
             <label className="relative">
               <input type="radio" name="lineup_mode" value="fixed" className="sr-only peer" />
-              <div className="p-4 rounded-lg border border-border peer-checked:border-zinc-400 peer-checked:bg-zinc-800 cursor-pointer text-center transition-colors">
+              <div className="p-4 rounded-lg border border-border peer-checked:border-gold peer-checked:bg-charcoal cursor-pointer text-center transition-colors">
                 <p className="font-medium">Fixed</p>
                 <p className="text-xs text-muted-foreground mt-1">Set batting order per inning</p>
               </div>
