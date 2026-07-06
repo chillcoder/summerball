@@ -23,11 +23,22 @@ export default function GlossarySheet({ className = "" }: { className?: string }
       </button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="h-[80vh] bg-background border-border">
-          <SheetHeader>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="max-h-[85vh] bg-background border-border"
+        >
+          <SheetHeader className="flex-row items-center justify-between">
             <SheetTitle className="text-foreground">What the terms mean</SheetTitle>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card text-lg leading-none"
+            >
+              ✕
+            </button>
           </SheetHeader>
-          <div className="overflow-y-auto mt-2 pb-10 px-1 space-y-6">
+          <div className="flex-1 min-h-0 overflow-y-auto mt-2 pb-4 px-1 space-y-6">
             {GLOSSARY.map((section) => (
               <div key={section.title}>
                 <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
@@ -52,6 +63,12 @@ export default function GlossarySheet({ className = "" }: { className?: string }
               </div>
             ))}
           </div>
+          <button
+            onClick={() => setOpen(false)}
+            className="shrink-0 w-full py-3 rounded-xl bg-card border border-border text-foreground font-medium active:scale-98 transition-transform"
+          >
+            Done
+          </button>
         </SheetContent>
       </Sheet>
     </>

@@ -17,15 +17,31 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: boxScore } = await supabase
-    .from("game_box_score")
-    .select("*")
-    .eq("game_id", id);
+  const [{ data: boxScore }, atBats] = await Promise.all([
+    supabase.from("game_box_score").select("*").eq("game_id", id),
+    getGameAtBats(id), // public read — feeds the line score (and the editor when signed in)
+  ]);
 
   // Signed-in users can edit at-bats — even on final games ("I was safe!").
-  const [editAtBats, editLineup] = user
-    ? await Promise.all([getGameAtBats(id), getGameLineup(id)])
-    : [null, null];
+  const editLineup = user ? await getGameLineup(id) : null;
+
+  // Per-inning line score. Runs aren't tracked per batter (deliberate non-goal),
+  // so RBIs are the honest run proxy — labeled as such in the UI.
+  const counted = atBats.filter((ab) => !ab.is_pending);
+  const maxInning = counted.length
+    ? Math.max(...counted.map((ab) => ab.inning ?? 1))
+    : 0;
+  const lineScore = Array.from({ length: maxInning }, (_, i) => {
+    const inn = counted.filter((ab) => (ab.inning ?? 1) === i + 1);
+    return {
+      inning: i + 1,
+      hits: inn.filter((ab) => ["1B", "2B", "3B", "HR"].includes(ab.outcome)).length,
+      rbi: inn.reduce((s, ab) => s + (ab.rbis ?? 0), 0),
+    };
+  });
+  // One lone inning of data isn't a line score yet — show once innings exist
+  // or while live (so it builds on screen during a game).
+  const showLineScore = lineScore.length > 0 && (maxInning >= 2 || game.status === "live");
 
   const statusLabel: Record<string, string> = {
     scheduled: "Scheduled",
@@ -84,6 +100,54 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         </Link>
       )}
 
+      {/* Line score by inning (RBI ≈ runs; per-batter runs aren't tracked) */}
+      {showLineScore && (
+        <div className="mb-6">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
+            Line score <span className="normal-case tracking-normal">· runs shown as RBI</span>
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm text-center">
+              <thead>
+                <tr className="border-b border-border bg-card">
+                  <th className="text-left py-1.5 px-3 text-muted-foreground font-medium text-xs">Inn</th>
+                  {lineScore.map((c) => (
+                    <th key={c.inning} className="py-1.5 px-2 text-muted-foreground font-medium text-xs">
+                      {c.inning}
+                    </th>
+                  ))}
+                  <th className="py-1.5 px-3 text-gold font-medium text-xs">T</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border/50">
+                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">RBI</td>
+                  {lineScore.map((c) => (
+                    <td key={c.inning} className="py-1.5 px-2 font-mono font-semibold">
+                      {c.rbi}
+                    </td>
+                  ))}
+                  <td className="py-1.5 px-3 font-mono font-bold text-gold">
+                    {lineScore.reduce((s, c) => s + c.rbi, 0)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">H</td>
+                  {lineScore.map((c) => (
+                    <td key={c.inning} className="py-1.5 px-2 font-mono text-muted-foreground">
+                      {c.hits}
+                    </td>
+                  ))}
+                  <td className="py-1.5 px-3 font-mono font-semibold text-gold">
+                    {lineScore.reduce((s, c) => s + c.hits, 0)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Box score */}
       {boxScore && boxScore.length > 0 && (
         <div className="overflow-x-auto">
@@ -133,8 +197,8 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         <p className="text-muted-foreground text-center py-8">No stats recorded yet</p>
       )}
 
-      {user && editAtBats && editLineup && editAtBats.length > 0 && (
-        <PastGameEditor gameId={id} initialAtBats={editAtBats} lineup={editLineup} />
+      {user && editLineup && atBats.length > 0 && (
+        <PastGameEditor gameId={id} initialAtBats={atBats} lineup={editLineup} />
       )}
     </main>
   );

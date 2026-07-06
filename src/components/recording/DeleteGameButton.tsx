@@ -5,18 +5,29 @@ import { deleteGame } from "@/app/actions/games";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-export default function DeleteTestGameButton({ gameId }: { gameId: string }) {
+export default function DeleteGameButton({
+  gameId,
+  label = "Delete game",
+  confirmText = "Delete this game and all its at-bats? This can't be undone.",
+  className = "w-full",
+  size,
+}: {
+  gameId: string;
+  label?: string;
+  confirmText?: string;
+  className?: string;
+  size?: "sm" | "lg" | "default" | "icon";
+}) {
   const [isPending, startTransition] = useTransition();
 
   return (
     <Button
       variant="ghost"
-      className="w-full text-red-400 hover:text-red-300 hover:bg-red-900/20"
+      size={size}
+      className={`text-red-400 hover:text-red-300 hover:bg-red-900/20 ${className}`}
       disabled={isPending}
       onClick={() => {
-        if (
-          confirm("Delete this test game and all its at-bats? This can't be undone.")
-        ) {
+        if (confirm(confirmText)) {
           startTransition(async () => {
             try {
               await deleteGame(gameId);
@@ -27,7 +38,7 @@ export default function DeleteTestGameButton({ gameId }: { gameId: string }) {
         }
       }}
     >
-      {isPending ? "Deleting..." : "Delete test game"}
+      {isPending ? "Deleting..." : label}
     </Button>
   );
 }

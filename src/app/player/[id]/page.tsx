@@ -2,7 +2,25 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { formatStat } from "@/lib/stats/compute";
+import { computeStreaks } from "@/lib/stats/streaks";
+import Sparkline from "@/components/stats/Sparkline";
 import type { PlayerStats } from "@/types/database";
+
+interface GameStatRow {
+  game_id: string;
+  played_at: string;
+  opponent: string | null;
+  ab: number;
+  hits: number;
+  singles: number;
+  doubles: number;
+  triples: number;
+  home_runs: number;
+  walks: number;
+  sac: number;
+  rbi: number;
+  avg: number;
+}
 
 export default async function PlayerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -30,12 +48,55 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
   if (!player) notFound();
 
   const stats = statsData as PlayerStats | null;
+  const history = (gameHistory ?? []) as GameStatRow[]; // most-recent first
+
+  // Recent form: hit streak + hot/cold vs season average.
+  const streaks = stats ? computeStreaks(history, stats.avg) : null;
+
+  // Trend lines: cumulative AVG and OPS as the season progressed (oldest → newest).
+  const asc = [...history].reverse();
+  let cH = 0, cAb = 0, cBb = 0, cSac = 0, cTb = 0;
+  const avgTrend: number[] = [];
+  const opsTrend: number[] = [];
+  for (const g of asc) {
+    cH += g.hits;
+    cAb += g.ab;
+    cBb += g.walks;
+    cSac += g.sac;
+    cTb += g.singles + g.doubles * 2 + g.triples * 3 + g.home_runs * 4;
+    avgTrend.push(cAb > 0 ? cH / cAb : 0);
+    const obp = cAb + cBb + cSac > 0 ? (cH + cBb) / (cAb + cBb + cSac) : 0;
+    const slg = cAb > 0 ? cTb / cAb : 0;
+    opsTrend.push(obp + slg);
+  }
 
   return (
     <main className="min-h-screen p-4 max-w-lg mx-auto">
       <Link href="/team" className="text-sm text-muted-foreground mb-4 block">← Season stats</Link>
 
       <h1 className="text-3xl font-bold mb-1">{player.name}</h1>
+
+      {/* Recent form */}
+      {streaks && (streaks.status || streaks.hitStreak >= 2) && (
+        <p className="text-sm mt-1">
+          {streaks.status === "hot" && (
+            <span className="text-gold">
+              🔥 Hot — {streaks.last3Hits}-for-{streaks.last3Ab} over the last few games
+            </span>
+          )}
+          {streaks.status === "cold" && (
+            <span className="text-bk-teal">
+              ❄️ Cooling off — {streaks.last3Hits}-for-{streaks.last3Ab} recently
+            </span>
+          )}
+          {streaks.hitStreak >= 2 && (
+            <span className="text-muted-foreground">
+              {streaks.status ? " · " : ""}
+              {streaks.hitStreak}-game hit streak
+            </span>
+          )}
+        </p>
+      )}
 
       {!stats || stats.ab === 0 ? (
         <p className="text-muted-foreground mt-6">No stats yet this season.</p>
@@ -86,6 +147,29 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
               ))}
             </div>
           </div>
+
+          {/* Season trends */}
+          {avgTrend.length >= 2 && (
+            <div className="mt-4 rounded-lg bg-card border border-border p-4 space-y-4">
+              <div>
+                <div className="flex items-baseline justify-between mb-1">
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">AVG trend</p>
+                  <p className="text-xs font-mono text-gold">{formatStat(stats.avg, "avg")}</p>
+                </div>
+                <Sparkline values={avgTrend} stroke="#d68f23" />
+              </div>
+              <div>
+                <div className="flex items-baseline justify-between mb-1">
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">OPS trend</p>
+                  <p className="text-xs font-mono text-bk-teal">{formatStat(stats.ops, "ops")}</p>
+                </div>
+                <Sparkline values={opsTrend} stroke="#738f8a" />
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Cumulative through each game this season
+              </p>
+            </div>
+          )}
 
           {/* Game-by-game */}
           {gameHistory && gameHistory.length > 0 && (

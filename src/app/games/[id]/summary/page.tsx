@@ -3,7 +3,7 @@ import { getGame } from "@/app/actions/games";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import DeleteTestGameButton from "@/components/recording/DeleteTestGameButton";
+import DeleteGameButton from "@/components/recording/DeleteGameButton";
 
 export default async function GameSummaryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -65,7 +65,13 @@ export default async function GameSummaryPage({ params }: { params: Promise<{ id
         <Link href="/">
           <Button variant="ghost" className="w-full text-muted-foreground">Home</Button>
         </Link>
-        {game.is_exhibition && <DeleteTestGameButton gameId={id} />}
+        {game.is_exhibition && (
+          <DeleteGameButton
+            gameId={id}
+            label="Delete test game"
+            confirmText="Delete this test game and all its at-bats? This can't be undone."
+          />
+        )}
       </div>
     </main>
   );

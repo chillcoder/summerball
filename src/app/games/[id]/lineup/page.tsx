@@ -1,16 +1,23 @@
-import { getGame, getGameLineup, getSeasonStatsMap } from "@/app/actions/games";
+import {
+  getGame,
+  getGameLineup,
+  getSeasonStatsMap,
+  getSeasonOutcomeCounts,
+} from "@/app/actions/games";
 import { getRosterPlayers } from "@/app/actions/roster";
 import LineupClient from "@/components/recording/LineupClient";
+import DeleteGameButton from "@/components/recording/DeleteGameButton";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
 export default async function LineupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [game, rosterPlayers, savedLineup, statsByPlayer] = await Promise.all([
+  const [game, rosterPlayers, savedLineup, statsByPlayer, outcomeCounts] = await Promise.all([
     getGame(id),
     getRosterPlayers(),
     getGameLineup(id),
     getSeasonStatsMap(),
+    getSeasonOutcomeCounts(),
   ]);
 
   if (!game) notFound();
@@ -34,7 +41,22 @@ export default async function LineupPage({ params }: { params: Promise<{ id: str
         players={rosterPlayers}
         savedLineup={savedLineup}
         statsByPlayer={statsByPlayer}
+        outcomeCounts={outcomeCounts}
       />
+
+      {game.status !== "final" && (
+        <div className="mt-8 pt-4 border-t border-border">
+          <DeleteGameButton
+            gameId={game.id}
+            label={game.status === "live" ? "Delete this game" : "Discard this game"}
+            confirmText={
+              game.status === "live"
+                ? "Delete this live game and every at-bat recorded so far? This can't be undone."
+                : "Discard this game and its lineup? This can't be undone."
+            }
+          />
+        </div>
+      )}
     </main>
   );
 }

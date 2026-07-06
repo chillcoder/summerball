@@ -73,11 +73,11 @@ export default function EditLogDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="bottom" className="h-[80vh] bg-background border-border">
+      <SheetContent side="bottom" className="max-h-[85vh] bg-background border-border">
         <SheetHeader>
           <SheetTitle className="text-cream">At-bat log</SheetTitle>
         </SheetHeader>
-        <div className="overflow-y-auto mt-4 space-y-2 pb-8">
+        <div className="flex-1 min-h-0 overflow-y-auto mt-4 space-y-2 pb-8">
           {sorted.length === 0 && (
             <p className="text-muted-foreground text-sm text-center py-8">No at-bats yet</p>
           )}

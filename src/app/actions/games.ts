@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { Game, GameLineup, LineupMode, Player, PlayerStats } from "@/types/database";
+import type { AtBatOutcome, Game, GameLineup, LineupMode, Player, PlayerStats } from "@/types/database";
 import { loadGameReport } from "@/lib/stats/loadReport";
 import { generateRecap } from "@/lib/ai/recap";
 
@@ -201,18 +201,20 @@ export async function regenerateRecap(gameId: string): Promise<string[]> {
   return bullets;
 }
 
-// Delete a game (at-bats + lineup cascade). Guarded to exhibition games only so
-// real season data can never be wiped from the UI.
+// Delete a game (at-bats + lineup cascade). Allowed for test games and any
+// not-yet-final game (scheduled lineups created by mistake, abandoned live
+// games). A finalized real game is protected so season stats can't be wiped.
 export async function deleteGame(gameId: string) {
   const supabase = await createClient();
   const { data: game } = await supabase
     .from("games")
-    .select("is_exhibition")
+    .select("status, is_exhibition")
     .eq("id", gameId)
     .single();
 
-  if (!game?.is_exhibition) {
-    throw new Error("Only test games can be deleted");
+  if (!game) throw new Error("Game not found");
+  if (game.status === "final" && !game.is_exhibition) {
+    throw new Error("Finalized games can't be deleted");
   }
 
   const { error } = await supabase.from("games").delete().eq("id", gameId);
@@ -233,6 +235,29 @@ export async function getGameLineup(gameId: string) {
 
   if (error) throw new Error(error.message);
   return data as (GameLineup & { player: Player })[];
+}
+
+// Raw per-player outcome counts across the season (final, non-exhibition games).
+// Feeds the Monte Carlo lineup optimizer's outcome distributions.
+export async function getSeasonOutcomeCounts(): Promise<
+  Record<string, Partial<Record<AtBatOutcome, number>>>
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("at_bats")
+    .select("player_id, outcome, games!inner(status, is_exhibition, team_id)")
+    .eq("is_pending", false)
+    .eq("games.status", "final")
+    .eq("games.is_exhibition", false)
+    .eq("games.team_id", TEAM_ID);
+
+  if (error) return {};
+  const counts: Record<string, Partial<Record<AtBatOutcome, number>>> = {};
+  for (const row of (data ?? []) as unknown as { player_id: string; outcome: AtBatOutcome }[]) {
+    const c = (counts[row.player_id] ??= {});
+    c[row.outcome] = (c[row.outcome] ?? 0) + 1;
+  }
+  return counts;
 }
 
 // Season stats keyed by player_id, for the rule-based lineup recommendation.

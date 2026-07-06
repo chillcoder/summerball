@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { PlayerStats } from "@/types/database";
+import type { StreakInfo } from "@/lib/stats/streaks";
 import { formatStat } from "@/lib/stats/compute";
 import Link from "next/link";
 import { posthog } from "@/lib/posthog/client";
@@ -17,7 +18,13 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "home_runs", label: "HR" },
 ];
 
-export default function TeamStatsClient({ stats }: { stats: PlayerStats[] }) {
+export default function TeamStatsClient({
+  stats,
+  streaksByPlayer = {},
+}: {
+  stats: PlayerStats[];
+  streaksByPlayer?: Record<string, StreakInfo>;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("avg");
 
   const sorted = [...stats].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
@@ -71,6 +78,7 @@ export default function TeamStatsClient({ stats }: { stats: PlayerStats[] }) {
                   onClick={() => posthog.capture("stats_viewed", { scope: "player", viewer_role: "viewer" })}
                 >
                   {p.player_name}
+                  <StreakBadge info={streaksByPlayer[p.player_id]} />
                 </Link>
               </td>
               <td className="text-center py-3 px-1 text-muted-foreground">{p.games_played}</td>
@@ -98,5 +106,34 @@ export default function TeamStatsClient({ stats }: { stats: PlayerStats[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function StreakBadge({ info }: { info?: StreakInfo }) {
+  if (!info) return null;
+  return (
+    <>
+      {info.status === "hot" && (
+        <span
+          className="ml-1.5 text-xs"
+          title={`Hot: ${info.last3Hits}-for-${info.last3Ab} over the last few games`}
+        >
+          🔥
+        </span>
+      )}
+      {info.status === "cold" && (
+        <span
+          className="ml-1.5 text-xs"
+          title={`Cold: ${info.last3Hits}-for-${info.last3Ab} recently`}
+        >
+          ❄️
+        </span>
+      )}
+      {info.hitStreak >= 3 && (
+        <span className="ml-1.5 text-[11px] text-gold" title="Consecutive games with a hit">
+          {info.hitStreak}G streak
+        </span>
+      )}
+    </>
   );
 }
