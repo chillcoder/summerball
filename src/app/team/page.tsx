@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import TeamStatsClient from "@/components/stats/TeamStatsClient";
 import AskStatsBox from "@/components/stats/AskStatsBox";
 import GlossarySheet from "@/components/GlossarySheet";
+import BrandLogo from "@/components/BrandLogo";
 import Link from "next/link";
 import type { PlayerStats } from "@/types/database";
 import { computeStreaks, type StreakInfo } from "@/lib/stats/streaks";
@@ -44,9 +45,12 @@ export default async function TeamPage() {
   return (
     <main className="min-h-screen p-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">{teamData?.name ?? "Team"}</h1>
-          <p className="text-muted-foreground text-sm">Season stats</p>
+        <div className="flex items-center gap-3">
+          <BrandLogo size={40} className="rounded-lg" />
+          <div>
+            <h1 className="text-2xl font-bold">{teamData?.name ?? "Team"}</h1>
+            <p className="text-muted-foreground text-sm">Season stats</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <GlossarySheet />

@@ -92,6 +92,34 @@ export async function startGame(gameId: string) {
   redirect(`/record/${gameId}`);
 }
 
+// Edit a game's after-the-fact details (date, opponent, final score). Used from
+// the game page. Auth is enforced by RLS (games_auth_update).
+export async function updateGameDetails(
+  gameId: string,
+  updates: { playedAt?: string; opponent?: string | null; scoreUs?: number | null; scoreThem?: number | null }
+) {
+  const supabase = await createClient();
+  const patch: Record<string, unknown> = {};
+  if (updates.playedAt) patch.played_at = updates.playedAt;
+  if ("opponent" in updates) patch.opponent = updates.opponent?.trim() || null;
+  if ("scoreUs" in updates) patch.final_score_us = updates.scoreUs;
+  if ("scoreThem" in updates) patch.final_score_them = updates.scoreThem;
+  if (Object.keys(patch).length === 0) return;
+
+  const { error } = await supabase.from("games").update(patch).eq("id", gameId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/", "layout"); // date/score show on home, game page, summary
+}
+
+// Post-edit propagation: at-bat edits (RBI/outcome fixes on a finalized game)
+// change season + player + box-score numbers, but the low-level at-bat actions
+// stay lean for the rapid live-recording path. Call this once after an edit
+// session so every stat surface re-reads. Broad on purpose; it runs rarely.
+export async function revalidateStatsAfterEdit() {
+  revalidatePath("/", "layout");
+}
+
 // Persist the current inning so a mid-game reload resumes where we were.
 export async function setGameInning(gameId: string, inning: number) {
   const supabase = await createClient();

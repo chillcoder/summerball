@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { revalidateStatsAfterEdit } from "@/app/actions/games";
 import type { AtBat, GameLineup, Player } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import EditLogDrawer from "./EditLogDrawer";
@@ -42,7 +43,9 @@ export default function PastGameEditor({
           setOpen(false);
           if (dirty) {
             setDirty(false);
-            router.refresh(); // recompute box score + season stats server-side
+            // Propagate to /team + player pages (not just this game page), then
+            // re-render the current route.
+            revalidateStatsAfterEdit().finally(() => router.refresh());
           }
         }}
         atBats={atBats}

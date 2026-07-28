@@ -4,6 +4,7 @@ import { getGames } from "@/app/actions/games";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import DeleteGameButton from "@/components/recording/DeleteGameButton";
+import BrandLogo from "@/components/BrandLogo";
 
 export default async function Home() {
   const [games, supabase] = await Promise.all([
@@ -23,8 +24,9 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6 gap-8">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight">Summer Ball</h1>
+      <div className="flex flex-col items-center text-center">
+        <BrandLogo size={112} className="mb-3 rounded-2xl" />
+        <h1 className="text-4xl font-bold tracking-tight">Beerkats</h1>
         <p className="text-muted-foreground mt-1">Softball stats tracker</p>
       </div>
 

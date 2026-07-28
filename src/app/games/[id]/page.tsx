@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import GlossarySheet from "@/components/GlossarySheet";
 import PastGameEditor from "@/components/recording/PastGameEditor";
+import GameDetailsEditor from "@/components/recording/GameDetailsEditor";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -104,7 +105,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
       {showLineScore && (
         <div className="mb-6">
           <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
-            Line score <span className="normal-case tracking-normal">· runs shown as RBI</span>
+            Hits &amp; RBI by inning
           </p>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm text-center">
@@ -197,8 +198,13 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         <p className="text-muted-foreground text-center py-8">No stats recorded yet</p>
       )}
 
-      {user && editLineup && atBats.length > 0 && (
-        <PastGameEditor gameId={id} initialAtBats={atBats} lineup={editLineup} />
+      {user && (
+        <>
+          <GameDetailsEditor game={game} />
+          {editLineup && atBats.length > 0 && (
+            <PastGameEditor gameId={id} initialAtBats={atBats} lineup={editLineup} />
+          )}
+        </>
       )}
     </main>
   );
