@@ -100,6 +100,14 @@ export default async function Home() {
         </Link>
 
         {user && (
+          <Link href="/chat">
+            <Button size="lg" variant="outline" className="w-full">
+              Ask the Coach
+            </Button>
+          </Link>
+        )}
+
+        {user && (
           <Link href="/roster">
             <Button size="lg" variant="outline" className="w-full">
               Manage Roster

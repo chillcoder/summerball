@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getDb } from "./db";
 import { recordAtBat, updateAtBat, deleteAtBat } from "@/app/actions/atBats";
-import { setGameInning } from "@/app/actions/games";
+import { setGameInning, setInningRuns } from "@/app/actions/games";
 import type { AtBat } from "@/types/database";
 
 // The in-game at-bat mutations are the ones that fire rapidly during play and
@@ -13,12 +13,14 @@ type RecordArgs = Parameters<typeof recordAtBat>[0];
 type UpdateArgs = { id: string; updates: Parameters<typeof updateAtBat>[1] };
 type DeleteArgs = { id: string };
 type SetInningArgs = { gameId: string; inning: number };
+type SetInningRunsArgs = { gameId: string; inning: number; runs: number };
 
 export type QueuedOp =
   | { op: "recordAtBat"; args: RecordArgs }
   | { op: "updateAtBat"; args: UpdateArgs }
   | { op: "deleteAtBat"; args: DeleteArgs }
-  | { op: "setInning"; args: SetInningArgs };
+  | { op: "setInning"; args: SetInningArgs }
+  | { op: "setInningRuns"; args: SetInningRunsArgs };
 
 async function dispatch(op: string, args: unknown): Promise<void> {
   switch (op) {
@@ -38,6 +40,11 @@ async function dispatch(op: string, args: unknown): Promise<void> {
       await setGameInning(a.gameId, a.inning);
       return;
     }
+    case "setInningRuns": {
+      const a = args as SetInningRunsArgs;
+      await setInningRuns(a.gameId, a.inning, a.runs);
+      return;
+    }
     default:
       throw new Error(`Unknown sync op: ${op}`);
   }
@@ -52,6 +59,25 @@ function notify() {
 // --- enqueue ---------------------------------------------------------------
 export async function enqueue(op: QueuedOp): Promise<void> {
   const db = getDb();
+
+  // Inning-runs writes are absolute (upsert of the total). Collapse rapid taps
+  // in a big inning to a single pending write per (game, inning).
+  if (op.op === "setInningRuns") {
+    const pending = await db.outbox.toArray();
+    const existing = pending.find(
+      (i) =>
+        i.op === "setInningRuns" &&
+        (i.args as SetInningRunsArgs).gameId === op.args.gameId &&
+        (i.args as SetInningRunsArgs).inning === op.args.inning &&
+        i.id != null
+    );
+    if (existing) {
+      await db.outbox.update(existing.id as number, { args: op.args });
+      notify();
+      void flush();
+      return;
+    }
+  }
 
   // Coalesce a record→undo that both happened before the insert synced: drop the
   // queued insert (and any updates) instead of round-tripping a create + delete.
@@ -161,6 +187,9 @@ export function queueDeleteAtBat(id: string): Promise<void> {
 }
 export function queueSetInning(gameId: string, inning: number): Promise<void> {
   return enqueue({ op: "setInning", args: { gameId, inning } });
+}
+export function queueSetInningRuns(gameId: string, inning: number, runs: number): Promise<void> {
+  return enqueue({ op: "setInningRuns", args: { gameId, inning, runs } });
 }
 
 export type { AtBat };

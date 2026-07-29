@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { askStats } from "@/app/actions/askStats";
 import { Button } from "@/components/ui/button";
 
@@ -32,9 +33,14 @@ export default function AskStatsBox() {
 
   return (
     <div className="mt-8 rounded-lg bg-card border border-border p-4">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-        Ask about the season
-      </p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          Ask about the season
+        </p>
+        <Link href="/chat" className="text-xs text-gold hover:text-amber-deep">
+          Full chat →
+        </Link>
+      </div>
 
       <form
         onSubmit={(e) => {

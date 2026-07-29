@@ -1,4 +1,4 @@
-import { getGame, getGameLineup, getSeasonStatsMap } from "@/app/actions/games";
+import { getGame, getGameLineup, getSeasonStatsMap, getInningRuns } from "@/app/actions/games";
 import { getGameAtBats } from "@/app/actions/atBats";
 import RecordingScreen from "@/components/recording/RecordingScreen";
 import { notFound, redirect } from "next/navigation";
@@ -13,11 +13,12 @@ export default async function RecordPage({ params }: { params: Promise<{ gameId:
     redirect(`/login?redirect=/record/${gameId}`);
   }
 
-  const [game, lineup, atBats, statsByPlayer] = await Promise.all([
+  const [game, lineup, atBats, statsByPlayer, inningRuns] = await Promise.all([
     getGame(gameId),
     getGameLineup(gameId),
     getGameAtBats(gameId),
     getSeasonStatsMap(),
+    getInningRuns(gameId),
   ]);
 
   if (!game) notFound();
@@ -34,6 +35,7 @@ export default async function RecordPage({ params }: { params: Promise<{ gameId:
       initialAtBats={atBats}
       userId={user.id}
       statsByPlayer={statsByPlayer}
+      initialInningRuns={inningRuns}
     />
   );
 }

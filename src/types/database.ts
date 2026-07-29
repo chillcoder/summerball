@@ -93,6 +93,12 @@ export interface GameLineup {
   status: PlayerLineupStatus;
 }
 
+export interface GameInning {
+  game_id: string;
+  inning: number;
+  runs: number;
+}
+
 export interface AtBat {
   id: string;
   game_id: string;

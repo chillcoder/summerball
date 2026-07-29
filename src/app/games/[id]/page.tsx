@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getGame, getGameLineup } from "@/app/actions/games";
+import { getGame, getGameLineup, getInningRuns } from "@/app/actions/games";
 import { getGameAtBats } from "@/app/actions/atBats";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -18,31 +18,37 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: boxScore }, atBats] = await Promise.all([
+  const [{ data: boxScore }, atBats, inningRuns] = await Promise.all([
     supabase.from("game_box_score").select("*").eq("game_id", id),
     getGameAtBats(id), // public read — feeds the line score (and the editor when signed in)
+    getInningRuns(id), // real runs per inning
   ]);
 
   // Signed-in users can edit at-bats — even on final games ("I was safe!").
   const editLineup = user ? await getGameLineup(id) : null;
 
-  // Per-inning line score. Runs aren't tracked per batter (deliberate non-goal),
-  // so RBIs are the honest run proxy — labeled as such in the UI.
+  // Line score: real runs per inning (game_innings) + hits per inning (at-bats).
   const counted = atBats.filter((ab) => !ab.is_pending);
-  const maxInning = counted.length
-    ? Math.max(...counted.map((ab) => ab.inning ?? 1))
-    : 0;
+  const runsByInning: Record<number, number> = Object.fromEntries(
+    inningRuns.map((r) => [r.inning, r.runs])
+  );
+  const maxInning = Math.max(
+    0,
+    ...counted.map((ab) => ab.inning ?? 1),
+    ...inningRuns.map((r) => r.inning)
+  );
   const lineScore = Array.from({ length: maxInning }, (_, i) => {
     const inn = counted.filter((ab) => (ab.inning ?? 1) === i + 1);
     return {
       inning: i + 1,
+      runs: runsByInning[i + 1] ?? 0,
       hits: inn.filter((ab) => ["1B", "2B", "3B", "HR"].includes(ab.outcome)).length,
-      rbi: inn.reduce((s, ab) => s + (ab.rbis ?? 0), 0),
     };
   });
-  // One lone inning of data isn't a line score yet — show once innings exist
-  // or while live (so it builds on screen during a game).
-  const showLineScore = lineScore.length > 0 && (maxInning >= 2 || game.status === "live");
+  const totalInningRuns = lineScore.reduce((s, c) => s + c.runs, 0);
+  // Show once we have real inning data (multiple innings, any runs, or live).
+  const showLineScore =
+    lineScore.length > 0 && (maxInning >= 2 || totalInningRuns > 0 || game.status === "live");
 
   const statusLabel: Record<string, string> = {
     scheduled: "Scheduled",
@@ -101,11 +107,11 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         </Link>
       )}
 
-      {/* Line score by inning (RBI ≈ runs; per-batter runs aren't tracked) */}
+      {/* Line score: real runs by inning + hits by inning */}
       {showLineScore && (
         <div className="mb-6">
           <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
-            Hits &amp; RBI by inning
+            Line score
           </p>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm text-center">
@@ -117,23 +123,21 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                       {c.inning}
                     </th>
                   ))}
-                  <th className="py-1.5 px-3 text-gold font-medium text-xs">T</th>
+                  <th className="py-1.5 px-3 text-gold font-medium text-xs">R</th>
                 </tr>
               </thead>
               <tbody>
                 <tr className="border-b border-border/50">
-                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">RBI</td>
+                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">Runs</td>
                   {lineScore.map((c) => (
                     <td key={c.inning} className="py-1.5 px-2 font-mono font-semibold">
-                      {c.rbi}
+                      {c.runs}
                     </td>
                   ))}
-                  <td className="py-1.5 px-3 font-mono font-bold text-gold">
-                    {lineScore.reduce((s, c) => s + c.rbi, 0)}
-                  </td>
+                  <td className="py-1.5 px-3 font-mono font-bold text-gold">{totalInningRuns}</td>
                 </tr>
                 <tr>
-                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">H</td>
+                  <td className="text-left py-1.5 px-3 text-muted-foreground text-xs">Hits</td>
                   {lineScore.map((c) => (
                     <td key={c.inning} className="py-1.5 px-2 font-mono text-muted-foreground">
                       {c.hits}

@@ -9,9 +9,10 @@ import {
   queueUpdateAtBat,
   queueDeleteAtBat,
   queueSetInning,
+  queueSetInningRuns,
   useSyncStatus,
 } from "@/lib/offline/queue";
-import type { AtBat, AtBatOutcome, Game, OutcomeCategory, PlayerStats } from "@/types/database";
+import type { AtBat, AtBatOutcome, Game, GameInning, OutcomeCategory, PlayerStats } from "@/types/database";
 import {
   OUTCOMES_BY_CATEGORY,
   OUTCOME_LABELS,
@@ -68,12 +69,14 @@ export default function RecordingScreen({
   initialAtBats,
   userId,
   statsByPlayer = {},
+  initialInningRuns = [],
 }: {
   game: Game;
   lineup: GameLineupEntry[];
   initialAtBats: AtBat[];
   userId: string;
   statsByPlayer?: Record<string, PlayerStats>;
+  initialInningRuns?: GameInning[];
 }) {
   const [atBats, setAtBats] = useState<AtBat[]>(initialAtBats);
   const [currentIndex, setCurrentIndex] = useState(() => {
@@ -91,6 +94,10 @@ export default function RecordingScreen({
   // RBI edits stay in sync.
   const [lastPlayId, setLastPlayId] = useState<string | null>(null);
   const [inning, setInning] = useState(game.current_inning ?? 1);
+  // Real runs per inning (our offense), keyed by inning number.
+  const [inningRuns, setInningRuns] = useState<Record<number, number>>(() =>
+    Object.fromEntries(initialInningRuns.map((r) => [r.inning, r.runs]))
+  );
   const [showEditLog, setShowEditLog] = useState(false);
   const unsynced = useSyncStatus();
   // self-AB flow state: null = normal; "choosing" = the recorder is up and
@@ -280,6 +287,18 @@ export default function RecordingScreen({
     toast(`Inning ${next}`);
   }
 
+  function bumpRuns(delta: number) {
+    haptic([20]);
+    setInningRuns((prev) => {
+      const next = Math.max(0, (prev[inning] ?? 0) + delta);
+      void queueSetInningRuns(game.id, inning, next);
+      return { ...prev, [inning]: next };
+    });
+  }
+
+  const runsThisInning = inningRuns[inning] ?? 0;
+  const totalRuns = Object.values(inningRuns).reduce((s, r) => s + r, 0);
+
   function handleSkip() {
     posthog.capture("batter_skipped", {
       game_id: game.id,
@@ -403,6 +422,31 @@ export default function RecordingScreen({
             )}
           </p>
         )}
+
+        {/* Runs this inning — tap + as runs cross the plate (counts error/FC runs too) */}
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-card border border-border px-3 py-2">
+          <div className="text-xs min-w-0">
+            <span className="text-muted-foreground">Inn {inning} runs</span>
+            <span className="text-muted-foreground/60 ml-2">· {totalRuns} total</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => bumpRuns(-1)}
+              className="w-9 h-9 rounded-lg bg-background border border-border text-xl leading-none active:scale-90 transition-transform"
+              aria-label="Remove run this inning"
+            >
+              −
+            </button>
+            <span className="w-6 text-center font-mono text-lg font-bold text-gold">{runsThisInning}</span>
+            <button
+              onClick={() => bumpRuns(1)}
+              className="w-9 h-9 rounded-lg bg-gold text-ink border border-amber-deep text-xl leading-none active:scale-90 transition-transform"
+              aria-label="Add run this inning"
+            >
+              +
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Action zone — bottom of the screen */}

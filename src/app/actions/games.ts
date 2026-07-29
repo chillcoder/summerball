@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { AtBatOutcome, Game, GameLineup, LineupMode, Player, PlayerStats } from "@/types/database";
+import type { AtBatOutcome, Game, GameInning, GameLineup, LineupMode, Player, PlayerStats } from "@/types/database";
 import { loadGameReport } from "@/lib/stats/loadReport";
 import { generateRecap } from "@/lib/ai/recap";
 
@@ -129,6 +129,28 @@ export async function setGameInning(gameId: string, inning: number) {
     .eq("id", gameId);
 
   if (error) throw new Error(error.message);
+}
+
+// Persist our runs for a specific inning (upsert on game+inning).
+export async function setInningRuns(gameId: string, inning: number, runs: number) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("game_innings")
+    .upsert({ game_id: gameId, inning, runs: Math.max(0, runs) }, { onConflict: "game_id,inning" });
+
+  if (error) throw new Error(error.message);
+}
+
+export async function getInningRuns(gameId: string): Promise<GameInning[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("game_innings")
+    .select("game_id, inning, runs")
+    .eq("game_id", gameId)
+    .order("inning");
+
+  if (error) return [];
+  return (data ?? []) as GameInning[];
 }
 
 export async function endGame(
